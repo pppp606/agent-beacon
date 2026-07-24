@@ -21,8 +21,9 @@ Claude Code → Hooks → beaconctl (CLI) → BLE → XIAO nRF52840 → LED
 
 ## マイルストーン
 
-1. **M1**: 特定のBeaconを一意に識別し、MacからBLE経由でそのBeaconのオンボードLEDをON/OFF
+1. **M1**: 特定のBeaconを一意に識別し、MacからBLE経由でそのBeaconのオンボードLEDをON/OFF ✅
 2. **M2**: Claude Codeが人間待ちでON、対応して処理が再開したらOFF
+3. **M3**: 複数Macで1台のBeaconを共有(色ビット=ホスト割り当て + 順繰り表示 + 複数同時接続) — [ADR 0004](docs/adr/0004-multi-host-sharing.md)
 
 ## 使い方(M1)
 
@@ -59,4 +60,5 @@ LEDが実際に光るかの目視確認は、最後の受け入れテストと�
 - 設計判断: [docs/adr/0001-minimal-e2e-architecture.md](docs/adr/0001-minimal-e2e-architecture.md)
 - Beacon識別: [docs/adr/0002-beacon-identity.md](docs/adr/0002-beacon-identity.md)
 - テスト戦略: [docs/adr/0003-test-strategy.md](docs/adr/0003-test-strategy.md)
+- 複数Mac共有(M3): [docs/adr/0004-multi-host-sharing.md](docs/adr/0004-multi-host-sharing.md)
 - BLEプロトコル: [docs/protocol.md](docs/protocol.md)
