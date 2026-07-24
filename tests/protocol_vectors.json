@@ -1,0 +1,33 @@
+{
+  "comment": "Shared protocol test vectors (docs/protocol.md). Consumed by both the firmware decode test (via tests/firmware_harness.cpp) and the CLI encode test, so the two sides cannot drift apart.",
+  "decode": [
+    { "state": 0, "red": false, "green": false, "blue": false, "blink": false, "note": "off" },
+    { "state": 1, "red": true, "green": false, "blue": false, "blink": false, "note": "red solid" },
+    { "state": 2, "red": false, "green": true, "blue": false, "blink": false, "note": "green solid" },
+    { "state": 3, "red": true, "green": true, "blue": false, "blink": false, "note": "yellow solid" },
+    { "state": 4, "red": false, "green": false, "blue": true, "blink": false, "note": "blue solid" },
+    { "state": 5, "red": true, "green": false, "blue": true, "blink": false, "note": "magenta solid" },
+    { "state": 6, "red": false, "green": true, "blue": true, "blink": false, "note": "cyan solid" },
+    { "state": 7, "red": true, "green": true, "blue": true, "blink": false, "note": "white solid" },
+    { "state": 9, "red": true, "green": false, "blue": false, "blink": true, "note": "red blink" },
+    { "state": 11, "red": true, "green": true, "blue": false, "blink": true, "note": "yellow blink" },
+    { "state": 15, "red": true, "green": true, "blue": true, "blink": true, "note": "white blink" },
+    { "state": 8, "red": true, "green": false, "blue": false, "blink": true, "note": "fail-safe: blink bit only -> red blink" },
+    { "state": 16, "red": true, "green": false, "blue": false, "blink": false, "note": "fail-safe: reserved bit -> red solid" },
+    { "state": 24, "red": true, "green": false, "blue": false, "blink": true, "note": "fail-safe: reserved + blink -> red blink" },
+    { "state": 128, "red": true, "green": false, "blue": false, "blink": false, "note": "fail-safe: reserved bit -> red solid" },
+    { "state": 255, "red": true, "green": true, "blue": true, "blink": true, "note": "all bits -> white blink" }
+  ],
+  "encode": [
+    { "color": "red", "blink": false, "state": 1 },
+    { "color": "green", "blink": false, "state": 2 },
+    { "color": "blue", "blink": false, "state": 4 },
+    { "color": "yellow", "blink": false, "state": 3 },
+    { "color": "magenta", "blink": false, "state": 5 },
+    { "color": "cyan", "blink": false, "state": 6 },
+    { "color": "white", "blink": false, "state": 7 },
+    { "color": "red", "blink": true, "state": 9 },
+    { "color": "yellow", "blink": true, "state": 11 },
+    { "color": "white", "blink": true, "state": 15 }
+  ]
+}
