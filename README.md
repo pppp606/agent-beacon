@@ -2,10 +2,16 @@
 
 **A physical light for when AI agents need your attention.**
 
-A device that lights a physical LED on your desk only when an AI agent
-(Claude Code, to start) needs human input, approval, or judgment. It displays
-no message content — the only thing it projects into the physical world is a
-single state: "an AI needs your attention."
+A device that lights a physical LED on your desk when an AI agent needs human
+input, approval, or judgment.
+
+The beacon itself knows nothing about AI agents, hooks, or webhooks. It exposes
+a tiny BLE protocol, while integrations live entirely on the host side. Claude
+Code is the first integration, but anything that can invoke `beaconctl` can use
+it.
+
+It displays no message content — the only thing it projects into the physical
+world is a single state: **"attention required."**
 
 ## Architecture
 
@@ -15,16 +21,10 @@ Claude Code → Hooks → beaconctl (CLI) → BLE → XIAO nRF52840 → LED
 
 | Directory | Responsibility |
 |---|---|
-| `firmware/` | Firmware for the XIAO nRF52840 (Arduino + Bluefruit). Knows nothing about agents |
+| `firmware/` | Firmware for the XIAO nRF52840 (Arduino + Bluefruit). Knows nothing about AI agents or integrations |
 | `cli/` | Mac-side CLI `beaconctl` (Python + bleak) |
-| `integrations/claude-code/` | Claude Code hook settings and the hook script (M2) |
+| `integrations/claude-code/` | Claude Code hook settings and the hook script |
 | `docs/` | Protocol spec and design decisions (ADRs) |
-
-## Milestones
-
-1. **M1**: Uniquely identify a specific beacon and switch its onboard LED on/off from a Mac over BLE ✅
-2. **M2**: Turn on while Claude Code waits for a human, off once the human responds and work resumes ✅
-3. **M3**: Share one beacon across multiple Macs (color bit = host assignment + cycling display + concurrent connections) ✅ — [ADR 0004](docs/adr/0004-multi-host-sharing.md)
 
 ## Usage
 
