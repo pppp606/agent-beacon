@@ -78,7 +78,8 @@ def short_id_from_adv(adv) -> str | None:
 
 
 async def discover_beacons(timeout: float) -> list[tuple[object, object, str]]:
-    """Return (device, adv, short_id) for every Agent Beacon in range."""
+    """Return (device, adv, short_id) for every Agent Beacon in range.
+    Waits the full timeout — use only when enumerating (scan / no target ID)."""
     found = await BleakScanner.discover(
         timeout=timeout, return_adv=True, service_uuids=[SERVICE_UUID]
     )
@@ -88,6 +89,27 @@ async def discover_beacons(timeout: float) -> list[tuple[object, object, str]]:
         if short_id is not None:
             beacons.append((device, adv, short_id))
     return beacons
+
+
+async def find_beacon_fast(target_id: str, timeout: float):
+    """Stop scanning the moment the target beacon is seen (the beacon
+    advertises every ~150ms, so this typically returns in well under a
+    second, versus discover() which always waits the full timeout)."""
+    found = asyncio.Event()
+    result = []
+
+    def on_advertisement(device, adv):
+        if short_id_from_adv(adv) == target_id and not result:
+            result.append(device)
+            found.set()
+
+    async with BleakScanner(detection_callback=on_advertisement,
+                            service_uuids=[SERVICE_UUID]):
+        try:
+            await asyncio.wait_for(found.wait(), timeout)
+        except asyncio.TimeoutError:
+            return None
+    return result[0]
 
 
 async def cmd_scan(args) -> int:
@@ -132,6 +154,11 @@ def pick_target(beacons, target_id: str | None):
 
 
 async def resolve_target(target_id: str | None, timeout: float):
+    if target_id is not None:
+        device = await find_beacon_fast(target_id, timeout)
+        if device is None:
+            print(f"Beacon {target_id} not found.", file=sys.stderr)
+        return device
     beacons = await discover_beacons(timeout)
     if not beacons:
         print("No Agent Beacon found.", file=sys.stderr)

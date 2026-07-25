@@ -21,7 +21,8 @@ Claude Code公式Hooksと Agent Beacon をつなぐブリッジ。
 
 Hook本体はローカルファイル更新だけで即終了し(Claude Codeをブロックしない)、
 BLE書き込みはデタッチされた `--sync` プロセスが desired/applied の2ファイルで
-最新状態に収束させる。イベントからLED反映までは数秒(BLE接続時間)。
+最新状態に収束させる。イベントからLED反映までは1〜2秒
+(対象Beaconのadvertisingを検出した瞬間にスキャンを打ち切り、接続・書き込みする)。
 
 ## インストール
 
