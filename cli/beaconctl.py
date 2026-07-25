@@ -7,13 +7,19 @@
 
 Usage:
   beaconctl scan [--timeout N]              List nearby beacons (short ID, name, RSSI)
-  beaconctl use <short-id>                  Save the target beacon ID to config
-  beaconctl on [--color C] [--blink]        Set attention state on the target beacon
-  beaconctl off
+  beaconctl use <short-id> [--color C]      Save the target beacon ID (and this
+                                            host's assigned color) to config
+  beaconctl on [--color C] [--blink]        Raise this host's attention bit
+  beaconctl off [--color C]                 Clear this host's attention bit
   beaconctl status                          Read back the current state
 
 Target resolution: --id > config file > the single beacon found nearby.
 Never depends on device name or scan order (docs/adr/0002-beacon-identity.md).
+
+Several Macs can share one beacon (docs/adr/0004-multi-host-sharing.md): each
+host owns one color bit and on/off read-modify-write only that bit, so one
+host clearing its wait never hides another host's. Assign colors with
+`use <id> --color green` (default: red).
 """
 
 from __future__ import annotations
@@ -33,13 +39,13 @@ MANUFACTURER_ID = 0xFFFF  # prototype only (ADR 0002)
 
 CONFIG_PATH = Path.home() / ".config" / "agent-beacon" / "config.json"
 
-ATTENTION_OFF = b"\x00"
 COLOR_MASK = 0x07
 BLINK_BIT = 0x08
 COLORS = {
     "red": 0x01, "green": 0x02, "blue": 0x04,
     "yellow": 0x03, "magenta": 0x05, "cyan": 0x06, "white": 0x07,
 }
+HOST_COLOR_DEFAULT = "red"
 
 
 def encode_state(color: str, blink: bool) -> int:
@@ -47,15 +53,34 @@ def encode_state(color: str, blink: bool) -> int:
     return COLORS[color] | (BLINK_BIT if blink else 0)
 
 
+def rmw_set(current: int, color_bits: int, blink: bool) -> int:
+    """Raise this host's color bit(s) on top of the current state
+    (docs/protocol.md v0.2). The blink bit is shared across hosts."""
+    return current | (color_bits & COLOR_MASK) | (BLINK_BIT if blink else 0)
+
+
+def rmw_clear(current: int, color_bits: int) -> int:
+    """Clear this host's color bit(s) only — other hosts' waits survive.
+    When no color bit is left the whole byte goes to 0x00: a leftover blink
+    or reserved bit would fail-safe to red and never turn off."""
+    state = current & ~(color_bits & COLOR_MASK)
+    if state & COLOR_MASK == 0:
+        return 0x00
+    return state
+
+
 def describe_state(state: int) -> str:
     if state == 0x00:
         return "off"
     color_bits = state & COLOR_MASK
-    name = next((n for n, v in COLORS.items() if v == color_bits), None)
-    if name is None:
-        name = "red (fail-safe)"
     blink = " blink" if state & BLINK_BIT else ""
-    return f"on {name}{blink}"
+    if color_bits == 0x00:
+        return f"on red (fail-safe){blink}"
+    names = [n for n, v in (("red", 0x01), ("green", 0x02), ("blue", 0x04))
+             if color_bits & v]
+    if len(names) == 1:
+        return f"on {names[0]}{blink}"
+    return f"on {'+'.join(names)} (cycle){blink}"
 
 
 def load_config() -> dict:
@@ -127,8 +152,12 @@ async def cmd_scan(args) -> int:
 async def cmd_use(args) -> int:
     config = load_config()
     config["beacon_id"] = args.short_id.lower()
+    if args.color:
+        config["host_color"] = args.color
     save_config(config)
-    print(f"Target beacon set to {config['beacon_id']} ({CONFIG_PATH})")
+    color = config.get("host_color", HOST_COLOR_DEFAULT)
+    print(f"Target beacon set to {config['beacon_id']}, host color {color} "
+          f"({CONFIG_PATH})")
     return 0
 
 
@@ -176,12 +205,27 @@ async def find_configured_device(args):
     return await resolve_target(target_id, args.timeout)
 
 
-async def cmd_set_state(args, value: bytes) -> int:
+def host_color_bits(args) -> int:
+    color = args.color or load_config().get("host_color", HOST_COLOR_DEFAULT)
+    return COLORS[color]
+
+
+async def cmd_rmw(args, op: str) -> int:
+    """on/off are read-modify-write on this host's color bit (protocol v0.2),
+    so several Macs can share one beacon without erasing each other's state."""
     device = await find_configured_device(args)
     if device is None:
         return 1
+    bits = host_color_bits(args)
     async with BleakClient(device) as client:
-        await client.write_gatt_char(ATTENTION_STATE_UUID, value, response=True)
+        current = (await client.read_gatt_char(ATTENTION_STATE_UUID))[0]
+        if op == "on":
+            new = rmw_set(current, bits, args.blink)
+        else:
+            new = rmw_clear(current, bits)
+        if new != current:
+            await client.write_gatt_char(ATTENTION_STATE_UUID,
+                                         bytes([new]), response=True)
     return 0
 
 
@@ -205,15 +249,20 @@ def main() -> int:
 
     p_use = sub.add_parser("use", help="save target beacon ID to config")
     p_use.add_argument("short_id")
+    p_use.add_argument("--color", choices=("red", "green", "blue"),
+                       help="this host's assigned color bit (ADR 0004)")
 
     for name in ("on", "off", "status"):
-        p = sub.add_parser(name, help={"on": "turn attention on",
-                                       "off": "turn attention off",
+        p = sub.add_parser(name, help={"on": "raise this host's attention bit",
+                                       "off": "clear this host's attention bit",
                                        "status": "read back current state"}[name])
         p.add_argument("--id", help="target beacon short ID (overrides config)")
         p.add_argument("--timeout", type=float, default=5.0)
+        if name in ("on", "off"):
+            p.add_argument("--color", choices=sorted(COLORS), default=None,
+                           help="color bits to operate on "
+                                "(default: configured host color)")
         if name == "on":
-            p.add_argument("--color", choices=sorted(COLORS), default="red")
             p.add_argument("--blink", action="store_true")
 
     args = parser.parse_args()
@@ -223,10 +272,8 @@ def main() -> int:
         coro = cmd_use(args)
     elif args.command == "status":
         coro = cmd_status(args)
-    elif args.command == "on":
-        coro = cmd_set_state(args, bytes([encode_state(args.color, args.blink)]))
     else:
-        coro = cmd_set_state(args, ATTENTION_OFF)
+        coro = cmd_rmw(args, args.command)
     try:
         return asyncio.run(coro)
     except BleakError as e:

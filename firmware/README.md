@@ -47,5 +47,9 @@ arduino-cli upload -p /dev/cu.usbmodemXXXX --fqbn Seeeduino:nrf52:xiaonRF52840Se
 ## 動作
 
 - 起動時: LED消灯、`AgentBeacon` としてadvertise(manufacturer dataにShort ID)
-- Attention State characteristic への write: `0x00` で消灯、それ以外で赤LED点灯(fail-safe)
+- Attention State characteristic への write: `0x00` で消灯、非ゼロで点灯。
+  色ビットが複数立っているときは800ms/色の順繰り表示、点滅ビットは全体に適用
+  ([docs/protocol.md](../docs/protocol.md) v0.2)
+- 同時接続は4枠(3ホスト+余裕)。接続中もadvertisingを継続し、
+  他のMacからもBeaconが見える(ADR 0004)
 - 切断されても状態は保持

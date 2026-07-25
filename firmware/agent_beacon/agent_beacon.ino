@@ -34,11 +34,12 @@ BLECharacteristic attentionState(ATTENTION_STATE_UUID);
 BLECharacteristic deviceIdChr(DEVICE_ID_UUID);
 
 uint8_t currentState = 0x00;
-bool blinkPhase = true;
+
+const uint32_t CYCLE_MS = 800;  // per color when several bits are set (ADR 0004)
+const uint32_t BLINK_MS = 250;  // half-period, ~2Hz
 
 // Onboard RGB LED is active low
-void applyLed(bool lit) {
-  AttentionLed led = attention_decode(currentState);
+void applyLed(const AttentionLed& led, bool lit) {
   digitalWrite(LED_RED, (lit && led.red) ? LOW : HIGH);
   digitalWrite(LED_GREEN, (lit && led.green) ? LOW : HIGH);
   digitalWrite(LED_BLUE, (lit && led.blue) ? LOW : HIGH);
@@ -48,9 +49,24 @@ void attentionWriteCallback(uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* 
   (void)conn_hdl;
   (void)chr;
   if (len < 1) return;
-  currentState = data[0];
-  blinkPhase = true;
-  applyLed(true);
+  currentState = data[0];  // loop() refreshes the LED within ~20ms
+}
+
+// Multi-connection (ADR 0004): connecting stops advertising and the library
+// only auto-restarts it once ALL centrals are gone, so keep advertising
+// ourselves while slots remain — otherwise a second Mac cannot even see the
+// beacon while the first is connected.
+void connectCallback(uint16_t conn_hdl) {
+  (void)conn_hdl;
+  Bluefruit.Advertising.start(0);
+}
+
+void disconnectCallback(uint16_t conn_hdl, uint8_t reason) {
+  (void)conn_hdl;
+  (void)reason;
+  if (!Bluefruit.Advertising.isRunning()) {
+    Bluefruit.Advertising.start(0);
+  }
 }
 
 void startAdvertising() {
@@ -77,15 +93,17 @@ void setup() {
   pinMode(LED_RED, OUTPUT);
   pinMode(LED_GREEN, OUTPUT);
   pinMode(LED_BLUE, OUTPUT);
-  applyLed(true);
+  applyLed(attention_decode(currentState), true);
 
   // The LED means "attention", nothing else: disable the core's BLE status
   // LED (blue: blinks while advertising, solid while connected)
   Bluefruit.autoConnLed(false);
-  Bluefruit.begin();
+  Bluefruit.begin(4, 0);  // up to 4 concurrent centrals: 3 hosts + slack (ADR 0004)
   digitalWrite(LED_BLUE, HIGH);
   Bluefruit.setTxPower(4);
   Bluefruit.setName("AgentBeacon");
+  Bluefruit.Periph.setConnectCallback(connectCallback);
+  Bluefruit.Periph.setDisconnectCallback(disconnectCallback);
 
   attentionService.begin();
 
@@ -111,12 +129,11 @@ void setup() {
 }
 
 void loop() {
-  if (attention_decode(currentState).blink) {
-    blinkPhase = !blinkPhase;
-    applyLed(blinkPhase);
-    delay(250);  // ~2Hz
-  } else {
-    applyLed(true);
-    delay(100);
-  }
+  // Display is a pure function of (state, time): cycle phase advances every
+  // CYCLE_MS, blink gates the whole display. No ordering-dependent state.
+  uint32_t now = millis();
+  AttentionLed led = attention_display(currentState, now / CYCLE_MS);
+  bool lit = !led.blink || ((now / BLINK_MS) % 2 == 0);
+  applyLed(led, lit);
+  delay(20);
 }

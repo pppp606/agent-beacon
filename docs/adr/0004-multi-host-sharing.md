@@ -1,6 +1,6 @@
 # ADR 0004: 複数Macによる1台のBeacon共有(M3)
 
-- Status: Accepted(実装はM2完了後 = M3)
+- Status: Implemented(2026-07-25)
 - Date: 2026-07-24
 
 ## Context

@@ -66,9 +66,16 @@ class TestDescribeState:
     def test_off(self):
         assert beaconctl.describe_state(0x00) == "off"
 
-    def test_named_colors(self):
+    def test_single_host_colors(self):
         assert beaconctl.describe_state(0x01) == "on red"
-        assert beaconctl.describe_state(0x0B) == "on yellow blink"
+        assert beaconctl.describe_state(0x02) == "on green"
+        assert beaconctl.describe_state(0x0C) == "on blue blink"
+
+    def test_multiple_hosts_read_as_cycle(self):
+        """v0.2: several color bits mean several waiting hosts, shown cycling."""
+        assert beaconctl.describe_state(0x03) == "on red+green (cycle)"
+        assert beaconctl.describe_state(0x07) == "on red+green+blue (cycle)"
+        assert beaconctl.describe_state(0x0B) == "on red+green (cycle) blink"
 
     def test_fail_safe_values_read_as_red(self):
         assert beaconctl.describe_state(0x10) == "on red (fail-safe)"

@@ -29,5 +29,41 @@
     { "color": "red", "blink": true, "state": 9 },
     { "color": "yellow", "blink": true, "state": 11 },
     { "color": "white", "blink": true, "state": 15 }
+  ],
+  "display": [
+    { "state": 0, "phase": 0, "red": false, "green": false, "blue": false, "blink": false, "note": "off stays off in every phase" },
+    { "state": 0, "phase": 3, "red": false, "green": false, "blue": false, "blink": false, "note": "off stays off in every phase" },
+    { "state": 1, "phase": 0, "red": true, "green": false, "blue": false, "blink": false, "note": "single color is steady" },
+    { "state": 1, "phase": 5, "red": true, "green": false, "blue": false, "blink": false, "note": "single color is steady" },
+    { "state": 3, "phase": 0, "red": true, "green": false, "blue": false, "blink": false, "note": "red+green cycles: phase 0 red" },
+    { "state": 3, "phase": 1, "red": false, "green": true, "blue": false, "blink": false, "note": "red+green cycles: phase 1 green" },
+    { "state": 3, "phase": 2, "red": true, "green": false, "blue": false, "blink": false, "note": "red+green cycles: wraps to red" },
+    { "state": 5, "phase": 0, "red": true, "green": false, "blue": false, "blink": false, "note": "red+blue cycles in bit order" },
+    { "state": 5, "phase": 1, "red": false, "green": false, "blue": true, "blink": false, "note": "red+blue cycles in bit order" },
+    { "state": 6, "phase": 0, "red": false, "green": true, "blue": false, "blink": false, "note": "green+blue: phase 0 green" },
+    { "state": 6, "phase": 1, "red": false, "green": false, "blue": true, "blink": false, "note": "green+blue: phase 1 blue" },
+    { "state": 7, "phase": 0, "red": true, "green": false, "blue": false, "blink": false, "note": "all three: red" },
+    { "state": 7, "phase": 1, "red": false, "green": true, "blue": false, "blink": false, "note": "all three: green" },
+    { "state": 7, "phase": 2, "red": false, "green": false, "blue": true, "blink": false, "note": "all three: blue" },
+    { "state": 7, "phase": 3, "red": true, "green": false, "blue": false, "blink": false, "note": "all three: wraps to red" },
+    { "state": 11, "phase": 0, "red": true, "green": false, "blue": false, "blink": true, "note": "blink applies to the whole cycle" },
+    { "state": 11, "phase": 1, "red": false, "green": true, "blue": false, "blink": true, "note": "blink applies to the whole cycle" },
+    { "state": 8, "phase": 0, "red": true, "green": false, "blue": false, "blink": true, "note": "fail-safe: blink bit only -> red blink" },
+    { "state": 8, "phase": 1, "red": true, "green": false, "blue": false, "blink": true, "note": "fail-safe red is steady across phases" },
+    { "state": 16, "phase": 2, "red": true, "green": false, "blue": false, "blink": false, "note": "fail-safe: reserved bit -> red solid" }
+  ],
+  "rmw": [
+    { "op": "set", "current": 0, "bit": 1, "blink": false, "result": 1, "note": "first host in" },
+    { "op": "set", "current": 1, "bit": 2, "blink": false, "result": 3, "note": "second host joins, first is kept" },
+    { "op": "set", "current": 3, "bit": 1, "blink": false, "result": 3, "note": "idempotent" },
+    { "op": "set", "current": 2, "bit": 1, "blink": true, "result": 11, "note": "blink bit is shared" },
+    { "op": "set", "current": 0, "bit": 4, "blink": false, "result": 4, "note": "blue host" },
+    { "op": "clear", "current": 3, "bit": 1, "result": 2, "note": "own bit only; other host keeps waiting" },
+    { "op": "clear", "current": 2, "bit": 2, "result": 0, "note": "last host out turns everything off" },
+    { "op": "clear", "current": 11, "bit": 1, "result": 10, "note": "blink survives while another host waits" },
+    { "op": "clear", "current": 10, "bit": 2, "result": 0, "note": "last host out drops the blink bit too" },
+    { "op": "clear", "current": 0, "bit": 1, "result": 0, "note": "idempotent" },
+    { "op": "clear", "current": 17, "bit": 1, "result": 0, "note": "no color left -> full clear incl. reserved bits (avoid fail-safe red)" },
+    { "op": "clear", "current": 19, "bit": 1, "result": 18, "note": "reserved bits are preserved while a color remains" }
   ]
 }

@@ -27,12 +27,23 @@ def ctl(*args: str) -> str:
     return result.stdout
 
 
-@pytest.mark.parametrize("on_args,expected", [
-    (["on"], "0x01 on red"),
-    (["on", "--color", "yellow", "--blink"], "0x0b on yellow blink"),
-    (["on", "--color", "cyan"], "0x06 on cyan"),
-    (["off"], "0x00 off"),
-])
-def test_write_then_read_back(on_args, expected):
-    ctl(*on_args)
-    assert ctl("status").strip() == expected
+def check(*args: str, expect: str) -> None:
+    ctl(*args)
+    assert ctl("status").strip() == expect
+
+
+def test_multi_host_read_modify_write_round_trip():
+    """Plays both hosts of the ADR 0004 scenario from one Mac: on/off are
+    read-modify-write, so the second host's wait must survive the first
+    host's clear."""
+    check("off", "--color", "white", expect="0x00 off")  # reset all hosts
+    check("on", "--color", "red", expect="0x01 on red")
+    check("on", "--color", "green", expect="0x03 on red+green (cycle)")
+    check("off", "--color", "red", expect="0x02 on green")
+    check("off", "--color", "green", expect="0x00 off")
+
+
+def test_last_host_out_also_clears_the_blink_bit():
+    check("off", "--color", "white", expect="0x00 off")
+    check("on", "--color", "red", "--blink", expect="0x09 on red blink")
+    check("off", "--color", "red", expect="0x00 off")

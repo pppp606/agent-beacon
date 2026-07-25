@@ -29,3 +29,27 @@ inline AttentionLed attention_decode(uint8_t state) {
   led.blink = (state & ATTENTION_BLINK_BIT) != 0;
   return led;
 }
+
+// v0.2 display (docs/protocol.md, ADR 0004): when several color bits are set
+// they are shown one at a time, cycling in bit order (red, green, blue) as
+// `phase` advances; the RGB package would otherwise blend them into a single
+// unreadable color. Blink stays orthogonal: it gates the whole display.
+inline AttentionLed attention_display(uint8_t state, uint32_t phase) {
+  AttentionLed all = attention_decode(state);
+  bool colors[3] = {all.red, all.green, all.blue};
+  int active = (int)colors[0] + (int)colors[1] + (int)colors[2];
+  if (active <= 1) return all;
+  uint32_t target = phase % (uint32_t)active;
+  AttentionLed led = {false, false, false, all.blink};
+  uint32_t seen = 0;
+  for (int i = 0; i < 3; i++) {
+    if (!colors[i]) continue;
+    if (seen++ == target) {
+      led.red = (i == 0);
+      led.green = (i == 1);
+      led.blue = (i == 2);
+      break;
+    }
+  }
+  return led;
+}

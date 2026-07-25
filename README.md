@@ -22,23 +22,41 @@ Claude Code → Hooks → beaconctl (CLI) → BLE → XIAO nRF52840 → LED
 ## マイルストーン
 
 1. **M1**: 特定のBeaconを一意に識別し、MacからBLE経由でそのBeaconのオンボードLEDをON/OFF ✅
-2. **M2**: Claude Codeが人間待ちでON、対応して処理が再開したらOFF
-3. **M3**: 複数Macで1台のBeaconを共有(色ビット=ホスト割り当て + 順繰り表示 + 複数同時接続) — [ADR 0004](docs/adr/0004-multi-host-sharing.md)
+2. **M2**: Claude Codeが人間待ちでON、対応して処理が再開したらOFF ✅
+3. **M3**: 複数Macで1台のBeaconを共有(色ビット=ホスト割り当て + 順繰り表示 + 複数同時接続) ✅ — [ADR 0004](docs/adr/0004-multi-host-sharing.md)
 
-## 使い方(M1)
+## 使い方
 
-ファームウェアの書き込みは [firmware/README.md](firmware/README.md) 参照。
+ファームウェアの書き込みは [firmware/README.md](firmware/README.md)、
+Claude Code連携は [integrations/claude-code/README.md](integrations/claude-code/README.md) 参照。
 
 ```sh
-uv run cli/beaconctl.py scan          # 周囲のBeaconをShort ID付きで一覧
-uv run cli/beaconctl.py use 5e6f7a8b  # 対象BeaconのIDを設定に保存
-uv run cli/beaconctl.py on            # LED点灯
-uv run cli/beaconctl.py off           # LED消灯
+uv run cli/beaconctl.py scan                        # 周囲のBeaconをShort ID付きで一覧
+uv run cli/beaconctl.py use 5e6f7a8b                # 対象BeaconのIDを設定に保存
+uv run cli/beaconctl.py on                          # 自ホストのattentionビットを立てる
+uv run cli/beaconctl.py off                         # 自ホストのattentionビットを落とす
+uv run cli/beaconctl.py status                      # 現在の状態を読み出す
 ```
 
 Beaconの識別はDevice nameやscan順序ではなく、nRF52840の固有IDで行う
 ([ADR 0002](docs/adr/0002-beacon-identity.md))。
 初回実行時はターミナルにBluetooth権限の許可を求められる。
+
+### 複数Macで1台のBeaconを共有する(M3)
+
+各Macに色ビットを1つ割り当てる(赤/緑/青、[ADR 0004](docs/adr/0004-multi-host-sharing.md))。
+`on`/`off` はread-modify-writeで**自分のビットだけ**を操作するため、
+あるMacの解除が他のMacの「待ち」を消すことはない。
+
+```sh
+# Mac A(デフォルトの赤のままでよい)
+uv run cli/beaconctl.py use 5e6f7a8b
+
+# Mac B
+uv run cli/beaconctl.py use 5e6f7a8b --color green
+```
+
+複数ホストが同時に待っているときは、Beaconが各色を800msずつ順繰りに表示する。
 
 ## 開発とテスト
 

@@ -34,6 +34,12 @@ BLE書き込みはデタッチされた `--sync` プロセスが desired/applied
 必要なもの: `python3`(標準ライブラリのみ)、`uv`(BLE書き込みプロセスが
 `uv run cli/beaconctl.py` を呼ぶ)。
 
+複数のMacで1台のBeaconを共有する場合は、各Macで
+`beaconctl use <id> --color <red|green|blue>` と色を分けて設定した上で、
+それぞれのMacに同じHookをインストールする(ADR 0004)。`on`/`off` は
+自ホストの色ビットだけをread-modify-writeするので、Mac Aへの返信で
+Mac Bの「待ち」が消えることはない。
+
 ## 状態・デバッグ
 
 状態ディレクトリ: `~/.local/state/agent-beacon/`(`AGENT_BEACON_STATE_DIR` で変更可)
