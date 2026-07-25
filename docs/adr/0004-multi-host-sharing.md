@@ -1,11 +1,11 @@
-# ADR 0004: 複数Macによる1台のBeacon共有(M3)
+# ADR 0004: Sharing One Beacon Across Multiple Macs (M3)
 
-- Status: Implemented(2026-07-25)
+- Status: Implemented (2026-07-25)
 - Date: 2026-07-24
 
 ## Context
 
-複数のMacが1台のBeaconを共有する構成(Mac A/B/C → 1 Beacon)を可能にしたい。
+We want several Macs to share a single beacon (Mac A/B/C → one beacon).
 
 ```
 Mac A ─┐
@@ -13,99 +13,115 @@ Mac B ─┼── BLE ──→ ● Agent Beacon
 Mac C ─┘
 ```
 
-現状の課題は2つ:
+Two problems with the current state:
 
-1. **BLE接続**: Bluefruitのデフォルトは同時1接続で、1台のMacが接続中は
-   advertisingが停止し、他のMacからBeaconが見えなくなる
-2. **状態の意味論**: 全Macが同じ1バイトに書くと後勝ち(last-write-wins)になり、
-   Mac Aが自分のOFFを書いた瞬間にMac Bの「待ち」が消えてしまう
+1. **BLE connections**: Bluefruit defaults to one concurrent connection;
+   while one Mac is connected, advertising stops and the beacon becomes
+   invisible to the other Macs
+2. **State semantics**: if every Mac writes the same single byte, the result
+   is last-write-wins — the instant Mac A writes its own OFF, Mac B's "wait"
+   disappears
 
-また、XIAOのオンボードRGB LEDは3素子1パッケージのため、複数色を同時点灯すると
-混色して1色に見え、「どのMacが呼んでいるか」を見分けられない。
+Also, the XIAO's onboard RGB LED is three elements in one package: lighting
+several colors at once blends them into a single hue, making it impossible
+to tell which Mac is calling.
 
 ## Decision
 
-### 1. 色ビット = ホスト割り当て(規約)
+### 1. Color bit = host assignment (convention)
 
-プロトコルの色ビット(bit0-2)を**ホストごとの割り当て**として使う:
-Mac A = 赤(bit0)、Mac B = 緑(bit1)、Mac C = 青(bit2)。
+Use the protocol's color bits (bits 0-2) as **per-host assignments**:
+Mac A = red (bit 0), Mac B = green (bit 1), Mac C = blue (bit 2).
 
-各Macは **read-modify-write** で自分のビットだけを操作する:
+Each Mac manipulates only its own bit via **read-modify-write**:
 
-- Attention発生: 現在値を読む → 自分のビットを立てる → 書き戻す
-- Attention解除: 現在値を読む → **自分のビットだけ**落とす → 書き戻す
+- Attention raised: read the current value → set your bit → write back
+- Attention cleared: read the current value → clear **only your bit** →
+  write back
 
-これにより、状態バイトは常に「いま待っているホストの集合」を表す。
-プロトコル(1バイト)もファームウェアの状態も変更不要で、Beaconは
-受け取ったバイトを表示するだけという分離(ADR 0001)を維持できる。
+The state byte thus always represents "the set of hosts currently waiting."
+Neither the protocol (one byte) nor the firmware state needs changing, and
+the separation from ADR 0001 — the beacon just displays the byte it
+receives — is preserved.
 
-**キューは作らない**。このプロダクトの通知は「人間が対応するまで出続けるべき状態」
-であり、「一度表示したら消費されるイベント」ではない。集合方式は冪等
-(何度書いても同じ結果)で、取りこぼし・二重積み・掃除の問題が構造的に存在しない。
+**No queue.** This product's notification is "a state that must stay visible
+until a human responds," not "an event consumed once displayed." The
+set-based approach is idempotent (writing twice changes nothing), so lost
+notifications, double-counting, and cleanup problems structurally cannot
+exist.
 
-### 2. 表示: 複数ビット時は混色ではなく順繰り表示
+### 2. Display: cycle through colors instead of blending
 
-複数の色ビットが立っているときは、混色(判読困難)ではなく
-**立っているビットを1色ずつ順繰りに表示**する(目安800ms/色):
+When several color bits are set, show **the set bits one color at a time in
+rotation** (about 800ms per color) rather than blending (unreadable):
 
-| 状態バイト | 表示 |
+| State byte | Display |
 |---|---|
-| `0x01` | 赤の点灯 |
-| `0x03` | 赤→緑→赤→… |
-| `0x07` | 赤→緑→青→赤→… |
+| `0x01` | solid red |
+| `0x03` | red → green → red → … |
+| `0x07` | red → green → blue → red → … |
 
-点滅ビット(bit3)は表示全体に直交して適用する(誰かが点滅を要求すると
-表示全体が点滅)。1ビットのみの場合は従来通り。
+The blink bit (bit 3) applies orthogonally to the whole display (if anyone
+requests blink, the entire display blinks). A single bit displays as before.
 
-動作イメージ:
+How it behaves:
 
 ```
-t0  全員作業中                    0x00  消灯
-t1  Mac Aが人間待ちに             0x01  赤点灯
-t2  Mac Bも人間待ちに             0x03  赤→緑→…
-t3  人間がMac Aに返信(Aのみ解除)  0x02  緑点灯だけが残る
+t0  everyone working                     0x00  dark
+t1  Mac A starts waiting                 0x01  solid red
+t2  Mac B starts waiting too            0x03  red → green → …
+t3  human replies on Mac A (A clears)    0x02  only green remains
 ```
 
-表示は常に現在のバイトから再計算されるため、追加・解除のタイミングや順序に
-表示が依存しない。
+The display is always recomputed from the current byte, so it never depends
+on the timing or order of raises and clears.
 
-実装は `attention_state.h` に「状態バイト + フェーズ番号 → その瞬間の1色」の
-純粋関数を足す形で行い、ADR 0003の手順(protocol.md とテストベクタを先に更新)に従う。
+Implementation: add a pure function "state byte + phase number → the one
+color for that instant" to `attention_state.h`, following the ADR 0003
+procedure (update protocol.md and the test vectors first).
 
-### 3. ファームウェア: 複数同時接続の受け入れ
+### 3. Firmware: accept concurrent connections
 
-調査結果(公式ソース確認済み):
+Findings (confirmed against official sources):
 
-- SoftDevice S140はperipheral roleで最大20同時接続をサポート
-  (`BLE_GAP_ROLE_COUNT_COMBINED_MAX = 20`)。Bluefruitのデフォルトは
-  `Bluefruit.begin(1, 0)` = 同時1接続
-- 接続成立でadvertisingは自動停止し、ライブラリは自動再開しない
-- `restartOnDisconnect(true)` は「**全**接続が切れたとき」しか広告を再開しない
-  (再開条件が `0 == Bluefruit.Periph.connected()`)。1台残存中に枠が空いても
-  広告されない落とし穴がある
+- SoftDevice S140 supports up to 20 concurrent connections in the peripheral
+  role (`BLE_GAP_ROLE_COUNT_COMBINED_MAX = 20`). Bluefruit's default is
+  `Bluefruit.begin(1, 0)` = one concurrent connection
+- Advertising stops automatically on connection and the library does not
+  restart it
+- `restartOnDisconnect(true)` restarts advertising only when **all**
+  connections are gone (the restart condition is
+  `0 == Bluefruit.Periph.connected()`). Pitfall: with one central still
+  connected, a freed slot is never advertised
 
-変更点(公式example `bleuart_multi` と同型):
+Changes (same shape as the official `bleuart_multi` example):
 
-1. `Bluefruit.begin(4, 0)` — 同時接続枠を4に(3 Mac + 余裕)
-2. connect callbackで `Bluefruit.Advertising.start(0)` — 満枠まで広告を継続し、
-   接続中も他のMacからBeaconが見えるようにする
-3. disconnect callbackでも `isRunning()` を確認して広告を再開する
+1. `Bluefruit.begin(4, 0)` — four concurrent connection slots (3 Macs +
+   slack)
+2. In the connect callback, `Bluefruit.Advertising.start(0)` — keep
+   advertising until slots are full, so other Macs can see the beacon while
+   one is connected
+3. In the disconnect callback, also check `isRunning()` and restart
+   advertising
 
-なお「接続→1バイトwrite→切断」の短命接続モデル(ADR 0001)は維持する。
-同時滞在数は普段0〜1なので4枠で十分。
+The short-lived connection model (connect → one-byte write → disconnect,
+ADR 0001) is kept. Typical simultaneous occupancy is 0-1, so four slots are
+plenty.
 
-## 既知の制約(許容する)
+## Known limitations (accepted)
 
-- **read-modify-writeのレース**: 2台がほぼ同時に読み書きすると片方の更新が
-  消えうる(lost update)。書き込み頻度が低いため許容する。問題になったら
-  「自分のビットのset/clearだけを送るコマンド」をプロトコルに足し、Beacon側で
-  合成する方式に移行する
-- **3台まで**: 色ビットは3つ。4台以上はホストID付きプロトコル(v0.3)が必要
-- **点滅は全体共有**: 点滅ビットは1つなのでホストごとに点滅は分けられない
+- **Read-modify-write races**: if two Macs read and write almost
+  simultaneously, one update can be lost (lost update). Accepted because
+  writes are infrequent. If it ever matters, add "set/clear only my bit"
+  commands to the protocol and let the beacon do the merge
+- **Three hosts max**: there are three color bits. Four or more hosts need a
+  host-ID protocol (v0.3)
+- **Blink is shared**: there is one blink bit, so blinking cannot be
+  per-host
 
 ## References
 
-- S140仕様: https://www.nordicsemi.com/Products/Development-software/s140
-- `ble_gap.h`(S140 v7.3.0): https://github.com/adafruit/Adafruit_nRF52_Arduino/blob/master/cores/nRF5/nordic/softdevice/s140_nrf52_7.3.0_API/include/ble_gap.h
+- S140 spec: https://www.nordicsemi.com/Products/Development-software/s140
+- `ble_gap.h` (S140 v7.3.0): https://github.com/adafruit/Adafruit_nRF52_Arduino/blob/master/cores/nRF5/nordic/softdevice/s140_nrf52_7.3.0_API/include/ble_gap.h
 - Bluefruit multi-connection example: https://github.com/adafruit/Adafruit_nRF52_Arduino/blob/master/libraries/Bluefruit52Lib/examples/Peripheral/bleuart_multi/bleuart_multi.ino
-- Advertising再開の挙動: https://github.com/adafruit/Adafruit_nRF52_Arduino/blob/master/libraries/Bluefruit52Lib/src/BLEAdvertising.cpp
+- Advertising restart behavior: https://github.com/adafruit/Adafruit_nRF52_Arduino/blob/master/libraries/Bluefruit52Lib/src/BLEAdvertising.cpp

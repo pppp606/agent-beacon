@@ -1,10 +1,10 @@
 # firmware
 
-Seeed XIAO nRF52840 向けファームウェア。BLE peripheralとして
-[Attention Service](../docs/protocol.md) を公開し、1バイトの状態でオンボードLEDを制御する。
-エージェント(Claude Code等)のことは一切知らない。
+Firmware for the Seeed XIAO nRF52840. Acts as a BLE peripheral exposing the
+[Attention Service](../docs/protocol.md) and drives the onboard LED from a
+single byte of state. Knows nothing about agents (Claude Code etc.).
 
-## セットアップ(初回のみ)
+## Setup (first time only)
 
 ```sh
 brew install arduino-cli
@@ -15,41 +15,44 @@ arduino-cli core update-index
 arduino-cli core install Seeeduino:nrf52
 ```
 
-## ビルド
+## Build
 
-FQBNはボードにより異なる(`arduino-cli board list` が表示してくれる):
+The FQBN depends on the board variant (`arduino-cli board list` shows it):
 
-- 無印: `Seeeduino:nrf52:xiaonRF52840`
+- Plain: `Seeeduino:nrf52:xiaonRF52840`
 - Sense: `Seeeduino:nrf52:xiaonRF52840Sense`
 
 ```sh
 arduino-cli compile --fqbn Seeeduino:nrf52:xiaonRF52840Sense firmware/agent_beacon
 ```
 
-## 書き込み
+## Flash
 
-USB接続してシリアル経由:
+Over serial with USB connected:
 
 ```sh
-arduino-cli board list   # ポート確認 (/dev/cu.usbmodemXXXX) とFQBN確認
+arduino-cli board list   # confirm the port (/dev/cu.usbmodemXXXX) and FQBN
 arduino-cli upload -p /dev/cu.usbmodemXXXX --fqbn Seeeduino:nrf52:xiaonRF52840Sense firmware/agent_beacon
 ```
 
-シリアルDFUが `Timed out waiting for acknowledgement` で失敗することがある。
-一度リトライすると通ることが多い。それでも失敗する場合は下のUF2を使う。
+Serial DFU sometimes fails with `Timed out waiting for acknowledgement`.
+A single retry usually gets through; if it keeps failing, use UF2 below.
 
-シリアル書き込みに失敗する場合はUF2で:
+If serial flashing fails, use UF2:
 
-1. リセットボタンをダブルタップ → `XIAO-SENSE` 等の名前でマスストレージがマウントされる
-2. `arduino-cli compile --fqbn Seeeduino:nrf52:xiaonRF52840 --export-binaries firmware/agent_beacon`
-   で生成される `.uf2` をドライブにコピー
+1. Double-tap the reset button → a mass-storage drive mounts under a name
+   like `XIAO-SENSE`
+2. Run `arduino-cli compile --fqbn Seeeduino:nrf52:xiaonRF52840 --export-binaries firmware/agent_beacon`
+   and copy the generated `.uf2` onto the drive
 
-## 動作
+## Behavior
 
-- 起動時: LED消灯、`AgentBeacon` としてadvertise(manufacturer dataにShort ID)
-- Attention State characteristic への write: `0x00` で消灯、非ゼロで点灯。
-  色ビットが複数立っているときは800ms/色の順繰り表示、点滅ビットは全体に適用
+- On boot: LED off, advertises as `AgentBeacon` (Short ID in manufacturer
+  data)
+- Writes to the Attention State characteristic: `0x00` turns the LED off,
+  non-zero lights it. With several color bits set, colors cycle at 800ms
+  each; the blink bit applies to the whole display
   ([docs/protocol.md](../docs/protocol.md) v0.2)
-- 同時接続は4枠(3ホスト+余裕)。接続中もadvertisingを継続し、
-  他のMacからもBeaconが見える(ADR 0004)
-- 切断されても状態は保持
+- Four concurrent connection slots (3 hosts + slack). Advertising continues
+  while connected, so other Macs can still see the beacon (ADR 0004)
+- State survives disconnection

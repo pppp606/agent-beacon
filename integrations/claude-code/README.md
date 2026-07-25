@@ -1,55 +1,60 @@
 # integrations/claude-code
 
-Claude Code公式Hooksと Agent Beacon をつなぐブリッジ。
+The bridge between official Claude Code hooks and the Agent Beacon.
 
-## 動作
+## Behavior
 
-状態モデル(ADR 0001): エージェントが**自律的に動いている間はOFF**、
-**停止して制御を人間に返したらON**(質問・承認要求・正常完了を含む)。
+State model (ADR 0001): **OFF while the agent works autonomously**, **ON
+once it stops and hands control back to the human** (questions, approval
+requests, and normal completion included).
 
-| Hookイベント | 意味 | セッション状態 |
+| Hook event | Meaning | Session state |
 |---|---|---|
-| `Stop` | ターン終了(制御を人間に返した) | waiting |
-| `Notification` (`idle_prompt`\|`permission_prompt`) | 入力待ち/承認待ち通知 | waiting |
-| `UserPromptSubmit` | 人間がプロンプト送信 | working |
-| `PreToolUse` | ツール実行(承認後の再開を含む) | working |
-| `SessionStart` | セッション開始/再開 | working |
-| `SessionEnd` | セッション終了 | 削除 |
+| `Stop` | Turn ended (control returned to the human) | waiting |
+| `Notification` (`idle_prompt`\|`permission_prompt`) | Waiting for input / approval | waiting |
+| `UserPromptSubmit` | Human submitted a prompt | working |
+| `PreToolUse` | Tool execution (incl. resuming after approval) | working |
+| `SessionStart` | Session started/resumed | working |
+| `SessionEnd` | Session ended | removed |
 
-複数セッションは `session_id` ごとに集約され、
-**どれか1つでも waiting ならLED ON、全部 working になったらOFF**。
+Multiple sessions are aggregated per `session_id`:
+**the LED is ON if any one session is waiting, OFF once all are working**.
 
-Hook本体はローカルファイル更新だけで即終了し(Claude Codeをブロックしない)、
-BLE書き込みはデタッチされた `--sync` プロセスが desired/applied の2ファイルで
-最新状態に収束させる。イベントからLED反映までは1〜2秒
-(対象Beaconのadvertisingを検出した瞬間にスキャンを打ち切り、接続・書き込みする)。
+The hook itself only updates local files and exits immediately (never
+blocking Claude Code); the BLE write is done by a detached `--sync` process
+that converges to the latest state via a desired/applied file pair. An event
+reaches the LED in about 1-2 seconds (scanning is cut short the moment the
+target beacon's advertising is seen, then connect and write).
 
-## インストール
+## Install
 
-1. Beaconをセットアップしておく(`beaconctl use <id>` 済みであること。ルートREADME参照)
-2. `settings.example.json` の `/PATH/TO/agent-beacon` をこのリポジトリの絶対パスに置換
-3. その `hooks` を `~/.claude/settings.json` にマージ(全プロジェクトで有効化する場合)。
-   特定プロジェクトだけならそのプロジェクトの `.claude/settings.json` へ
+1. Set up the beacon first (`beaconctl use <id>` done — see the root README)
+2. In `settings.example.json`, replace `/PATH/TO/agent-beacon` with this
+   repository's absolute path
+3. Merge its `hooks` into `~/.claude/settings.json` (to enable for all
+   projects), or into a specific project's `.claude/settings.json`
 
-必要なもの: `python3`(標準ライブラリのみ)、`uv`(BLE書き込みプロセスが
-`uv run cli/beaconctl.py` を呼ぶ)。
+Requirements: `python3` (standard library only) and `uv` (the BLE write
+process runs `uv run cli/beaconctl.py`).
 
-複数のMacで1台のBeaconを共有する場合は、各Macで
-`beaconctl use <id> --color <red|green|blue>` と色を分けて設定した上で、
-それぞれのMacに同じHookをインストールする(ADR 0004)。`on`/`off` は
-自ホストの色ビットだけをread-modify-writeするので、Mac Aへの返信で
-Mac Bの「待ち」が消えることはない。
+To share one beacon across several Macs, configure a distinct color on each
+Mac with `beaconctl use <id> --color <red|green|blue>`, then install the
+same hooks on every Mac (ADR 0004). Since `on`/`off` read-modify-write only
+this host's color bit, answering Mac A never clears Mac B's wait.
 
-## 状態・デバッグ
+## State & debugging
 
-状態ディレクトリ: `~/.local/state/agent-beacon/`(`AGENT_BEACON_STATE_DIR` で変更可)
+State directory: `~/.local/state/agent-beacon/` (override with
+`AGENT_BEACON_STATE_DIR`)
 
-- `sessions/<session_id>` — 各セッションの waiting / working
-- `desired` / `applied` — 集約結果と、Beaconへ書き込み済みの状態
-- `hook.log` — イベントと書き込みの記録
+- `sessions/<session_id>` — each session's waiting / working
+- `desired` / `applied` — the aggregate we want, and what was last written
+  to the beacon
+- `hook.log` — one line per handled event / write
 
-うまく動かないときは `hook.log` と `beaconctl status` を確認。
-BLE書き込み失敗(Beacon圏外など)は `applied` を更新しないため、
-次のイベントで自動リトライされる。
+If something misbehaves, check `hook.log` and `beaconctl status`.
+A failed BLE write (beacon out of range etc.) leaves `applied` untouched,
+so the next event retries automatically.
 
-テスト: `make test`(偽beaconctlでフロー全体を検証。実機不要)
+Tests: `make test` (drives the whole flow against a fake beaconctl; no
+hardware needed)

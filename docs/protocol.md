@@ -1,29 +1,31 @@
 # Agent Beacon BLE Protocol v0.2
 
-BeaconデバイスはBLE peripheralとして動作し、「attentionが必要かどうか」という
-1つの状態だけを受け取る。ホスト(Mac)がcentral。
+The beacon device acts as a BLE peripheral and receives exactly one piece of
+state: "is attention needed?". The host (Mac) is the central.
 
 ## Beacon ID
 
-各Beaconは永続的な一意IDを持つ(設計判断は [ADR 0002](adr/0002-beacon-identity.md))。
+Every beacon has a permanent unique ID (design rationale in
+[ADR 0002](adr/0002-beacon-identity.md)).
 
-- **Full ID**: nRF52840 FICR DEVICEID(64bit)の16桁小文字hex表現
-- **Short ID**: Full IDの下位32bit(末尾8桁)。Advertisingでの識別に使う
+- **Full ID**: the nRF52840 FICR DEVICEID (64 bit) as 16 lowercase hex digits
+- **Short ID**: the low 32 bits of the Full ID (last 8 digits). Used for
+  identification during advertising
 
 ## Advertising
 
-| フィールド | 内容 |
+| Field | Content |
 |---|---|
 | Flags | LE General Discoverable |
-| 128-bit Service UUID | Attention Service(プロダクト種別の発見用。全個体共通) |
-| Manufacturer data | Company ID `0xFFFF`(2バイト, LE)+ Short ID(4バイト, LE)|
-| Device name(scan response) | `AgentBeacon`(表示用。**識別には使わない**) |
+| 128-bit Service UUID | Attention Service (product discovery; shared by all units) |
+| Manufacturer data | Company ID `0xFFFF` (2 bytes, LE) + Short ID (4 bytes, LE) |
+| Device name (scan response) | `AgentBeacon` (display only — **never used for identification**) |
 
-ホストは Service UUID で「Agent Beaconであること」を発見し、
-manufacturer data の Short ID で「どの個体か」を識別する。
+Hosts discover "this is an Agent Beacon" via the Service UUID and identify
+"which unit" via the Short ID in the manufacturer data.
 
-Company ID `0xFFFF` はBluetooth SIGのテスト用予約値。試作フェーズ限定であり、
-製品化時に再検討する(ADR 0002)。
+Company ID `0xFFFF` is the Bluetooth SIG's reserved test value. It is for the
+prototype phase only and will be revisited before productization (ADR 0002).
 
 ## GATT
 
@@ -35,75 +37,84 @@ Company ID `0xFFFF` はBluetooth SIGのテスト用予約値。試作フェー�
 
 - Characteristic UUID: `7b1f0002-9f02-4c60-b0f7-a9f6a4b0beac`
 - Properties: Read, Write
-- 長さ: 1 byte 固定
+- Length: fixed 1 byte
 
-ビット割り当て:
+Bit assignment:
 
-| bit | 意味 |
+| bit | Meaning |
 |---|---|
-| 0 | 赤 |
-| 1 | 緑 |
-| 2 | 青 |
-| 3 | 点滅(約2Hz) |
-| 4-7 | 予約 |
+| 0 | red |
+| 1 | green |
+| 2 | blue |
+| 3 | blink (~2Hz) |
+| 4-7 | reserved |
 
-- `0x00` = attention不要(消灯)。**消灯させる値は今後のバージョンでも `0x00` のみ**
-- 非ゼロ = attention必要(点灯または点滅)
-- 例: `0x01`=赤点灯、`0x09`=赤点滅
+- `0x00` = no attention needed (LED off). **`0x00` remains the only
+  dark value in every future version**
+- Non-zero = attention needed (lit or blinking)
+- Examples: `0x01` = solid red, `0x09` = blinking red
 
-### 表示(v0.2: 順繰り表示)
+### Display (v0.2: cycling)
 
-複数の色ビットが立っているときは、混色ではなく**立っているビットを
-bit0→bit1→bit2の順に1色ずつ順繰りに表示**する(800ms/色)。
-色ビットが1つだけならその色を連続点灯する。
+When several color bits are set, the beacon does not blend them — it shows
+**one color at a time, cycling through the set bits in bit order
+(bit0 → bit1 → bit2), 800ms per color**. A single color bit is shown as a
+steady light.
 
-| 状態バイト | 表示 |
+| State byte | Display |
 |---|---|
-| `0x01` | 赤の点灯 |
-| `0x03` | 赤→緑→赤→…(800ms/色) |
-| `0x07` | 赤→緑→青→赤→… |
+| `0x01` | solid red |
+| `0x03` | red → green → red → … (800ms per color) |
+| `0x07` | red → green → blue → red → … |
 
-点滅ビット(bit3)は表示全体に直交して適用する(順繰り表示中も全体が約2Hzで点滅)。
+The blink bit (bit 3) applies orthogonally to the whole display (the entire
+cycle blinks at ~2Hz).
 
-表示は「状態バイト + フェーズ番号 → その瞬間の1色」の純粋関数として定義され
-(`attention_state.h` の `attention_display`)、書き込みの順序やタイミングに依存しない。
+The display is defined as a pure function of (state byte, phase number) →
+one color for that instant (`attention_display` in `attention_state.h`), so
+it never depends on write order or timing.
 
-### ホスト割り当てとread-modify-write(v0.2規約)
+### Host assignment and read-modify-write (v0.2 convention)
 
-複数ホストで1台のBeaconを共有するため、色ビットを**ホストごとの割り当て**として使う
-([ADR 0004](adr/0004-multi-host-sharing.md)): 例 Mac A=赤(bit0)、Mac B=緑(bit1)、
-Mac C=青(bit2)。状態バイトは「いま人間を待っているホストの集合」を表す。
+To share one beacon across several hosts, the color bits are used as
+**per-host assignments** ([ADR 0004](adr/0004-multi-host-sharing.md)): e.g.
+Mac A = red (bit 0), Mac B = green (bit 1), Mac C = blue (bit 2). The state
+byte is then "the set of hosts currently waiting for a human."
 
-各ホストは **read-modify-write** で自分のビットだけを操作する:
+Every host operates on its own bit only, via **read-modify-write**:
 
-- **Attention発生**: readで現在値を取得 → 自分の色ビットを立てる(必要なら点滅ビットも)→ write
-- **Attention解除**: readで現在値を取得 → 自分の色ビットだけを落とす → write。
-  ただし**色ビットがすべて0になる場合は `0x00` を書く**(点滅ビット・予約ビットも
-  一緒に消す)。点滅ビットだけが残るとfail-safeで赤点灯し、消せない誤点灯になるため
+- **Attention raised**: read the current value → set your color bit (and the
+  blink bit if desired) → write
+- **Attention cleared**: read the current value → clear only your color bit →
+  write. **If that leaves no color bit set, write `0x00`** (dropping the
+  blink and reserved bits too) — a leftover blink bit would fail-safe to red
+  and become a phantom light nobody can turn off
 
-これはホスト側の規約であり、Beaconは関知しない(受け取ったバイトを表示するだけ)。
-2ホストのread-modify-writeが同時に走った場合のlost updateは許容する(ADR 0004)。
+This is a host-side convention; the beacon is oblivious and simply displays
+whatever byte it receives. If two hosts read-modify-write at the same moment
+the lost update is accepted (ADR 0004).
 
-**未知値・不正値の扱い(fail-safe)**: 非ゼロなら必ず点す。
-色ビットがすべて0の非ゼロ値(予約bitのみ等)は**赤点灯にフォールバック**する。
-これは「将来バージョンのホストが送るAttention状態を古いBeaconが受信しても、
-通知を取りこぼさない」ためのfail-safe設計である。このプロダクトでは通知の
-取りこぼし(false negative)が最も避けるべき故障モードであり、未知値を無視する
-より点灯に倒す方が目的に合う。
+**Unknown / invalid values (fail-safe)**: any non-zero value must light up.
+A non-zero value with no color bits set (e.g. reserved bits only) **falls
+back to solid red**. This is deliberate fail-safe design: if a
+future-version host writes an attention state that an older beacon does not
+understand, the notification must not be lost. For this product a missed
+notification (false negative) is the worst failure mode, so unknown values
+lean toward lighting up rather than being ignored.
 
-- Readは現在の状態を返す(デバッグ用)。
-- 電源投入直後の状態は `0x00`(消灯)。
-- 切断されても状態は保持する(切断 ≠ OFF)。
+- Read returns the current state (for debugging).
+- The state after power-up is `0x00` (off).
+- The state survives disconnection (disconnect ≠ off).
 
 ### Device ID Characteristic
 
 - Characteristic UUID: `7b1f0003-9f02-4c60-b0f7-a9f6a4b0beac`
 - Properties: Read
-- 長さ: 16 bytes 固定(ASCII、Full IDの16桁小文字hex)
+- Length: fixed 16 bytes (ASCII, the Full ID as 16 lowercase hex digits)
 
-デバッグおよびShort ID衝突時の最終確認用。
+For debugging and as the final check in case of a Short ID collision.
 
-## セキュリティ
+## Security
 
-v0.1ではペアリング/ボンディングなし(open write)。試作機の脅威モデルでは許容し、
-専用基板化の際に再評価する。
+v0.1 has no pairing/bonding (open write). Acceptable under the prototype's
+threat model; to be re-evaluated when moving to a custom board.

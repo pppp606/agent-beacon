@@ -1,67 +1,78 @@
-# ADR 0003: テスト戦略(dual-target TDD)
+# ADR 0003: Test Strategy (dual-target TDD)
 
 - Status: Accepted
 - Date: 2026-07-24
 
 ## Context
 
-Webと同様にTDDで進めたいが、組み込みでは「LEDが光ったか」の最終確認が物理世界に
-あるため、素朴にやると目視デバッグだらけになる。組み込みの定石である
-**dual-target開発**(ロジックはホストでテストし、ハードウェア依存層を極限まで薄くする)
-を採用し、目視で確認すべきことを「配線とLEDが物理的に生きているか」だけに減らす。
+We want to work test-first as on the web, but in embedded work the final
+check — "did the LED light?" — lives in the physical world, and the naive
+approach degenerates into endless eyeball debugging. We adopt the embedded
+staple of **dual-target development** (logic tested on the host, the
+hardware-dependent layer kept razor thin), reducing what must be verified by
+eye to "are the wiring and the LED physically alive?".
 
 ## Decision
 
-### テストの層
+### Test layers
 
-| 層 | 何を検証するか | 実行環境 | コマンド |
+| Layer | What it verifies | Runs on | Command |
 |---|---|---|---|
-| 1. プロトコル準拠 | 状態バイトのdecode(ファームウェア)とencode(CLI)が仕様に一致し、互いにズレていないこと | ホスト(pytest + ネイティブC++) | `make test` |
-| 2. CLIユニット | adv解析・ターゲット解決・状態表示の純粋ロジック | ホスト(pytest) | `make test` |
-| 3. BLE往復 | write → `beaconctl status` でのread-backが一致すること(BLE・GATT・ファームの実配線) | 実機 + Bluetooth | `make test-e2e` |
-| 4. 光子 | LEDが実際にその色で光ること | 人間の目 | 手動 |
+| 1. Protocol conformance | State-byte decode (firmware) and encode (CLI) match the spec and cannot drift apart | Host (pytest + native C++) | `make test` |
+| 2. CLI units | Pure logic: advertisement parsing, target resolution, state display | Host (pytest) | `make test` |
+| 3. BLE round-trip | write → read-back via `beaconctl status` agrees (real BLE, GATT, firmware wiring) | Hardware + Bluetooth | `make test-e2e` |
+| 4. Photons | The LED really lights in that color | Human eyes | manual |
 
-層1〜3が通っていれば、層4で確認するのは「LED素子と配線が生きているか」だけ。
-仕様の理解違い(例: BLEステータスLEDの青点滅)は層1〜3で捕まえる。
+With layers 1-3 green, layer 4 only confirms "the LED element and wiring are
+alive." Spec misunderstandings (e.g. the BLE status LED blinking blue) are
+caught in layers 1-3.
 
-### 仕組み
+### Mechanics
 
-- **純粋ロジックの抽出**: プロトコル解釈は `firmware/agent_beacon/attention_state.h` の
-  純粋関数 `attention_decode()` に置く。Arduino依存ゼロなので、ホストのC++コンパイラで
-  そのままビルドできる(`tests/firmware_harness.cpp`)。`.ino` はピン操作とBluefruitの
-  glueだけを持ち、**プロトコル上の判断を`.ino`に書いてはならない**
-- **共有テストベクタ**: `tests/protocol_vectors.json` が仕様(docs/protocol.md)の
-  実行可能な写し。ファームのdecodeテストとCLIのencodeテストが同じファイルを読むため、
-  両者のプロトコル解釈は乖離できない。**プロトコルを変えるときは protocol.md と
-  ベクタを先に更新し、両側のテストを落としてから実装する**(これがこのリポジトリの
-  TDDの起点)
-- **fail-safe不変条件**: 「消灯は`0x00`のみ」は全256値の網羅テストで保証する
-- **pytestが単一のランナー**: C++ハーネスのコンパイルもpytest内で行うため、
-  `make test` 一発で全ホストテストが走る。実機テストは `BEACON_E2E=1` でゲートし、
-  ハードウェアが無い環境(CI等)では自動スキップ
+- **Extracted pure logic**: protocol interpretation lives in the pure
+  function `attention_decode()` in `firmware/agent_beacon/attention_state.h`.
+  Zero Arduino dependencies, so the host C++ compiler builds it directly
+  (`tests/firmware_harness.cpp`). The `.ino` holds only pin glue and
+  Bluefruit wiring — **no protocol decision may be written in the `.ino`**
+- **Shared test vectors**: `tests/protocol_vectors.json` is the executable
+  copy of the spec (docs/protocol.md). The firmware decode test and the CLI
+  encode test read the same file, so the two protocol interpretations cannot
+  diverge. **To change the protocol, update protocol.md and the vectors
+  first, watch both sides' tests fail, then implement** (this is the
+  repository's TDD entry point)
+- **Fail-safe invariant**: "only `0x00` is dark" is guaranteed by an
+  exhaustive test over all 256 values
+- **pytest as the single runner**: the C++ harness is compiled inside
+  pytest, so one `make test` runs every host test. Hardware tests are gated
+  behind `BEACON_E2E=1` and auto-skip where no hardware exists (CI etc.)
 
-### M2以降のルール
+### Rules from M2 onward
 
-M2(Claude Code Integration)も同じ構造で進める:
+M2 (the Claude Code integration) follows the same structure:
 
-1. Hookイベント → Beacon状態の対応(セッション集約、「どれか1つでも待ちならON」、
-   色の割り当て等)は**純粋関数**として書き、pytestでTDDする。
-   BLE書き込み(`beaconctl`呼び出し)やファイルI/Oは注入可能な形で分離する
-2. 状態遷移を変えるときはテストを先に書く
-3. 実機がなくても `make test` が通ること。実機確認は最後の受け入れテストとして
-   `make test-e2e` と目視で行う
+1. The mapping from hook events to beacon state (session aggregation, "ON if
+   any session is waiting", color assignment, …) is written as **pure
+   functions** and developed test-first with pytest. BLE writes (`beaconctl`
+   invocation) and file I/O are separated behind injectable seams
+2. Write the test first when changing a state transition
+3. `make test` must pass without hardware. Hardware verification happens
+   last, as acceptance: `make test-e2e` plus a visual check
 
-### 作らないもの
+### Not built
 
-- HIL(カラーセンサでLEDを機械的に読む仕組み): 量産検査の領域。試作規模では過剰
-- エミュレータ(Renode等)でのBLEスタック再現: セットアップコストに見合わない
-- モックフレームワーク(CMock等): 抽出した純粋関数のテストには不要
+- HIL (reading the LED mechanically with a color sensor): production-test
+  territory, overkill at prototype scale
+- Emulating the BLE stack (Renode etc.): setup cost isn't worth it
+- Mocking frameworks (CMock etc.): unnecessary for testing extracted pure
+  functions
 
 ## Consequences
 
-- ファームウェアの書き込みサイクル(約30秒)はテストループから外れ、
-  ホストテストは数秒で回る
-- `.ino` とハードウェアだけがテスト不能領域として残るが、そこには判断が無いため
-  壊れ方は「全く動かない」に寄る(発見が容易)
-- プロトコル変更のコストがわずかに上がる(protocol.md + ベクタ + 両実装)が、
-  これは仕様と実装のズレを構造的に防ぐための意図したコスト
+- The firmware flash cycle (~30s) drops out of the test loop; host tests run
+  in seconds
+- The `.ino` and the hardware remain the only untestable area, but since no
+  decisions live there, failures skew toward "nothing works at all" (easy to
+  spot)
+- Protocol changes cost slightly more (protocol.md + vectors + both
+  implementations) — a deliberate price for structurally preventing
+  spec/implementation drift

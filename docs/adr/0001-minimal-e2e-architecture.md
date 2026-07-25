@@ -1,137 +1,157 @@
-# ADR 0001: 最小構成のEnd-to-Endアーキテクチャ
+# ADR 0001: Minimal End-to-End Architecture
 
 - Status: Accepted
 - Date: 2026-07-24
 
 ## Context
 
-AIエージェント(最初はClaude Code)が人間のAttentionを必要としたとき、物理LEDでそれを知らせる。
-通知内容は表示しない。「attentionが必要かどうか」という1bitの状態だけを物理世界に出す。
+When an AI agent (Claude Code, to start) needs human attention, signal it
+with a physical LED. No message content is displayed — only a single bit of
+state, "is attention needed?", is projected into the physical world.
 
-試作ハードウェアは Seeed Studio XIAO nRF52840(オンボードRGB LED、BLE)。
+Prototype hardware: Seeed Studio XIAO nRF52840 (onboard RGB LED, BLE).
 
-マイルストーン:
+Milestones:
 
-1. **M1**: 特定のBeaconを一意に識別し、MacからBLE経由で**そのBeacon**のオンボードLEDをON/OFFできる
-2. **M2**: Claude Codeが人間待ちになったらON、人間が対応して処理が再開したらOFF
+1. **M1**: Uniquely identify a specific beacon and switch **that beacon's**
+   onboard LED on/off from a Mac over BLE
+2. **M2**: On when Claude Code starts waiting for a human, off once the human
+   responds and work resumes
 
-## Attentionの状態モデル(プロダクト仕様)
+## The attention state model (product spec)
 
-このプロダクトが扱う「Attention」は、「AIが質問や承認を要求している状態」だけではなく、
-**「AIが処理を停止し、制御を人間に返した状態」全般**を指す。正常完了も含む。
+"Attention" in this product does not mean only "the AI is asking a question
+or requesting approval" — it means **any state in which the AI has stopped
+and handed control back to the human**, including normal completion.
 
-| エージェントの状態 | LED |
+| Agent state | LED |
 |---|---|
-| 自律的に処理を進めている | OFF |
-| 停止し、人間側の次の行動を待っている(質問・承認要求・正常完了を含む) | ON |
+| Working autonomously | OFF |
+| Stopped, waiting for the human's next action (questions, approval requests, normal completion) | ON |
 
-この定義のもとでは、Claude Codeの `Stop` hook(ターン終了=制御を人間に返した)を
-Attention ONに使うのは技術的な代替手段ではなく、状態モデルそのものの実装である。
+Under this definition, using Claude Code's `Stop` hook (turn ended = control
+returned to the human) for attention-ON is not a technical workaround — it is
+the direct implementation of the state model.
 
 ## Decision
 
-### 全体構成
+### Overall structure
 
 ```
 Claude Code
   → Hooks (.claude/settings.json)          … integrations/claude-code/
   → beaconctl on|off (CLI)                  … cli/
   → BLE GATT write (1 byte)                 … docs/protocol.md
-  → XIAO nRF52840 ファームウェア            … firmware/
-  → オンボードLED
+  → XIAO nRF52840 firmware                  … firmware/
+  → onboard LED
 ```
 
-レイヤ間の契約は「attention = ON / OFF」の1バイトのみ。
-ファームウェアはClaude Codeについて何も知らず、CLIはLEDのピンについて何も知らない。
+The only contract between layers is one byte: "attention = ON / OFF".
+The firmware knows nothing about Claude Code; the CLI knows nothing about
+LED pins.
 
-### ファームウェア: Arduino + Seeed nRF52 Boards(非mbed)+ Bluefruit
+### Firmware: Arduino + Seeed nRF52 Boards (non-mbed) + Bluefruit
 
-- BSP: **Seeed nRF52 Boards**(Adafruit nRF52 coreのfork、FreeRTOS + SoftDevice + Bluefruit52Lib)。
-  Seeed公式WikiがBLE用途にはこちらを推奨(mbed版はTinyML向け)。
-- BLE: `bluefruit.h` で peripheral + custom GATT service + writable characteristic。
-  公式example(`custom_hrm.ino`)に同型の実装パターンあり。
-- ビルド/書き込み: `arduino-cli`(FQBN: `Seeeduino:nrf52:xiaonRF52840`)。
-  シリアル書き込み失敗時はUF2(リセットボタンのダブルタップ → マスストレージにコピー)がフォールバック。
-- LED: オンボードRGB LED(RED=P0.26, GREEN=P0.30, BLUE=P0.06)。**active low**
-  (`digitalWrite(pin, LOW)` で点灯)。v0.1は赤1色のみ使用。
+- BSP: **Seeed nRF52 Boards** (a fork of the Adafruit nRF52 core; FreeRTOS +
+  SoftDevice + Bluefruit52Lib). Seeed's official wiki recommends this one for
+  BLE work (the mbed variant targets TinyML).
+- BLE: `bluefruit.h` peripheral + custom GATT service + writable
+  characteristic. The official `custom_hrm.ino` example shows the same
+  implementation pattern.
+- Build/flash: `arduino-cli` (FQBN: `Seeeduino:nrf52:xiaonRF52840`). If
+  serial flashing fails, UF2 is the fallback (double-tap reset → copy onto
+  the mounted mass-storage drive).
+- LED: onboard RGB LED (RED=P0.26, GREEN=P0.30, BLUE=P0.06). **Active low**
+  (`digitalWrite(pin, LOW)` lights it). v0.1 uses red only.
 
-検討した代替案:
+Alternatives considered:
 
-| 案 | 不採用の理由 |
+| Option | Why rejected |
 |---|---|
-| CircuitPython | 手軽だが、将来の電池駆動(deep sleep)への移行に最も不利 |
-| Zephyr / nRF Connect SDK | 専用基板移行時の本命だが、custom GATT 1本の試作には過剰。GATT設計はそのまま持ち越せるため、専用基板を作る段階で再評価する |
-| PlatformIO | XIAO nRF52840対応がcommunity fork依存でメンテが不安定 |
+| CircuitPython | Easy to start, but the worst position for the future move to battery power (deep sleep) |
+| Zephyr / nRF Connect SDK | The favorite for the eventual custom board, but overkill for a one-characteristic prototype. The GATT design carries over as-is, so re-evaluate when the custom board happens |
+| PlatformIO | XIAO nRF52840 support depends on a community fork with unreliable maintenance |
 
-### BLEプロトコル: 1 characteristic、1 byte
+### BLE protocol: one characteristic, one byte
 
-`docs/protocol.md` 参照。custom service + writable characteristic 1本。
-1バイトのビット割り当てで色(bit0-2)と点滅(bit3)を表現し、`0x00` のみ消灯。
-未知の値はfail-safe(ON、赤にフォールバック)に倒す(理由はprotocol.md参照)。
-色・点滅は「複数のClaude Codeセッションが1台のBeaconを共有したとき、状態を
-区別できるようにする」ために入れた。どのセッションにどの色/パターンを割り当てるかの
-集約ロジックはIntegration層(M2)の責務であり、Beaconは受け取った1バイトを表示するだけ。
+See `docs/protocol.md`. One custom service + one writable characteristic.
+A single byte encodes color (bits 0-2) and blink (bit 3); only `0x00` is
+dark. Unknown values fail safe (ON, falling back to red — rationale in
+protocol.md). Color and blink exist so that when several Claude Code
+sessions share one beacon their states can be told apart. Which session gets
+which color/pattern is the integration layer's (M2's) responsibility; the
+beacon just displays the byte it receives.
 
-### Beaconの個体識別
+### Beacon identity
 
-各Beaconは工場書き込みの永続一意ID(nRF52840 FICR DEVICEID)を持ち、Mac側は
-Device nameやscan順序ではなくこのIDでBeaconを指定する。方式の詳細と判断理由は
-[ADR 0002](0002-beacon-identity.md)。
+Every beacon carries a factory-programmed permanent unique ID (nRF52840 FICR
+DEVICEID), and the Mac addresses a beacon by that ID — never by device name
+or scan order. Details and rationale in [ADR 0002](0002-beacon-identity.md).
 
-### Mac側CLI: Python + bleak
+### Mac-side CLI: Python + bleak
 
-- **bleak** はmacOS(CoreBluetooth)対応のBLEライブラリで、2026年時点で最も活発にメンテされている
-  (v3.0.1が2026-03リリース。noble系はビルドが壊れやすくリリース頻度も低い)。
-- `beaconctl on` / `beaconctl off` の2コマンドのみ。service UUIDでスキャン → 接続 → 1バイトwrite → 切断。
-- 常駐デーモンは作らない。状態遷移の頻度(人間待ちの発生)は低く、都度接続で十分。
-  接続レイテンシが体感で問題になったら初めてデーモン化を検討する。
+- **bleak** is the BLE library with macOS (CoreBluetooth) support and the
+  most active maintenance as of 2026 (v3.0.1 released 2026-03; the noble
+  family breaks builds often and releases rarely).
+- Only two commands: `beaconctl on` / `beaconctl off`. Scan by service UUID
+  → connect → write one byte → disconnect.
+- No resident daemon. State transitions (a human wait starting) are
+  infrequent, so connect-per-write is enough. Consider a daemon only if
+  connection latency ever becomes a felt problem.
 
-### Claude Code integration: 公式Hooks
+### Claude Code integration: official Hooks
 
-`.claude/settings.json` のHookでLEDを制御する。画面パースやtmux監視は使わない。
+The LED is controlled from hooks in `.claude/settings.json`. No screen
+parsing, no tmux watching.
 
-| 状態 | Hookイベント | セッション状態 |
+| State | Hook event | Session state |
 |---|---|---|
-| 承認待ち | `Notification` (matcher: `permission_prompt`) | waiting |
-| 入力待ち(ターン終了) | `Stop` | waiting |
-| 入力待ち(idle通知) | `Notification` (matcher: `idle_prompt`) | waiting |
-| 人間がプロンプト送信 | `UserPromptSubmit` | working |
-| 承認されてツール実行再開 | `PreToolUse` | working |
-| セッション開始/再開 | `SessionStart` | working |
-| セッション終了 | `SessionEnd` | (削除) |
+| Waiting for approval | `Notification` (matcher: `permission_prompt`) | waiting |
+| Waiting for input (turn ended) | `Stop` | waiting |
+| Waiting for input (idle notice) | `Notification` (matcher: `idle_prompt`) | waiting |
+| Human submitted a prompt | `UserPromptSubmit` | working |
+| Tool execution resumed after approval | `PreToolUse` | working |
+| Session started/resumed | `SessionStart` | working |
+| Session ended | `SessionEnd` | (removed) |
 
-LEDは単一セッションの状態ではなく**セッション集合の集約**
-(どれか1つでもwaitingならON)。実装は `integrations/claude-code/attention_hook.py`:
-Hook本体はセッション状態ファイルの更新だけで即終了し、BLE書き込みは
-デタッチされた収束プロセスが行う(Claude Codeをブロックしない)。
+The LED reflects not a single session but the **aggregate over all sessions**
+(ON if any one is waiting). Implementation:
+`integrations/claude-code/attention_hook.py` — the hook itself only updates
+session state files and exits immediately; a detached convergence process
+does the BLE write (never blocking Claude Code).
 
-補足:
+Notes:
 
-- `Stop` を使う理由: `idle_prompt` 通知はidle検出までに遅延があるため、ターン終了(=入力待ち開始)を
-  即時に拾うには `Stop` が確実。両方ONにしても冪等なので害はない。
-- `PreToolUse` を使う理由: permission承認後は `UserPromptSubmit` が発火しないため、
-  ツール実行再開をOFFのトリガーにする。
-- `PreToolUse` は高頻度に発火するため、集約結果が変わるときだけBLEに書く
-  (desired/appliedの比較)。BLE書き込み失敗時はappliedを更新せず、次のイベントで
-  自動リトライ = 最新状態への収束が保証される。
+- Why `Stop`: the `idle_prompt` notification lags behind idle detection, so
+  `Stop` is the reliable way to catch "waiting for input" the moment a turn
+  ends. Enabling both is idempotent and harmless.
+- Why `PreToolUse`: after a permission approval no `UserPromptSubmit` fires,
+  so resumed tool execution is the OFF trigger.
+- `PreToolUse` fires at high frequency, so BLE is written only when the
+  aggregate changes (desired/applied comparison). A failed BLE write leaves
+  `applied` untouched, so the next event retries automatically —
+  convergence to the latest state is guaranteed.
 
-## 作らないもの(Non-goals)
+## Non-goals
 
-- Slack等の一般通知、通知内容の表示、UI/ダッシュボード、クラウド/アカウント管理
-- BLEのペアリング/ボンディング(open writeで運用。試作機の脅威モデルでは許容。
-  専用基板化の際に再評価)
-- 複数Beaconの管理UIや同時制御(ただし**個体識別の仕組み自体はv0.1に含む** — ADR 0002)
-- 常駐ブリッジデーモン、電池駆動の省電力チューニング
-- Zephyr移行(専用基板を作る段階まで保留)
+- General notifications (Slack etc.), displaying message content,
+  UI/dashboards, cloud/account management
+- BLE pairing/bonding (open write; acceptable under the prototype threat
+  model, re-evaluated for the custom board)
+- Multi-beacon management UI or simultaneous control (but **the identity
+  mechanism itself ships in v0.1** — ADR 0002)
+- A resident bridge daemon, battery-power tuning
+- Zephyr migration (deferred until the custom board stage)
 
 ## Consequences
 
-- ファームウェアとIntegrationが1バイトのプロトコルだけで分離されるため、
-  Claude Code以外のエージェント対応はHook側の追加だけで済む。
-- Arduino/Bluefruit採用により試作は最速だが、数µAオーダーの省電力が必要になった時点で
-  Zephyrへの書き換えが必要になる。GATT設計(UUID・値)は変えないため、CLI・Hook側は無変更で済む。
-- 都度接続方式のため、Hook発火からLED点灯まで1〜2秒程度のレイテンシが見込まれる。
-  Attention通知という用途では許容範囲と判断。
+- Because the firmware and the integration are separated by a one-byte
+  protocol, supporting agents other than Claude Code only means adding hooks.
+- Arduino/Bluefruit makes the prototype fastest, but reaching µA-order power
+  draw will require a rewrite in Zephyr. The GATT design (UUIDs, values)
+  stays the same, so the CLI and hooks survive unchanged.
+- Connect-per-write means roughly 1-2s from hook firing to LED change.
+  Acceptable for an attention signal.
 
 ## References
 

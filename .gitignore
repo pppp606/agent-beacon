@@ -1,3 +1,4 @@
 __pycache__/
 .pytest_cache/
 firmware/agent_beacon/build/
+cli/beaconctl-lite
