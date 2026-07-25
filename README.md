@@ -157,6 +157,23 @@ Each beacon is addressed by its factory-unique ID, so any Mac can point at
 any beacon with one `use` command — grouping is purely a matter of which ID
 each Mac is configured to write to.
 
+## ライブラリを置けないMacで使う(beaconctl-lite / このブランチのみ)
+
+外部ライブラリを一切インストールできないMac向けに、macOS標準の
+CoreBluetooth + Swiftだけで動くゼロ依存クライアントがある
+([ADR 0005](docs/adr/0005-zero-dependency-host.md))。
+
+```sh
+make lite    # swiftc で1回ビルド(Xcode Command Line Toolsのみ必要)
+mkdir -p ~/.config/agent-beacon
+echo '{"beacon_id": "5e6f7a8b", "host_color": "blue"}' > ~/.config/agent-beacon/config.json
+cli/beaconctl-lite status
+```
+
+Hook連携は、settings.jsonのコマンドの先頭に
+`AGENT_BEACON_CTL=/PATH/TO/agent-beacon/cli/beaconctl-lite ` を足すだけ。
+機能は `on`/`off`/`status` のみ(scan/useは省略。IDは他のMacで調べて手で設定する)。
+
 ## Development and testing
 
 Development is test-driven (see [ADR 0003](docs/adr/0003-test-strategy.md)).
