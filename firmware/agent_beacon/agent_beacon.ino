@@ -38,6 +38,11 @@ uint8_t currentState = 0x00;
 const uint32_t CYCLE_MS = 800;  // per color when several bits are set (ADR 0004)
 const uint32_t BLINK_MS = 250;  // half-period, ~2Hz
 
+// Display-timeout clocks (docs/protocol.md): when each color bit was last
+// raised, plus the last state change for the colorless fail-safe case.
+uint32_t colorRaisedAt[3] = {0, 0, 0};
+uint32_t stateChangedAt = 0;
+
 // Onboard RGB LED is active low
 void applyLed(const AttentionLed& led, bool lit) {
   digitalWrite(LED_RED, (lit && led.red) ? LOW : HIGH);
@@ -49,7 +54,15 @@ void attentionWriteCallback(uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* 
   (void)conn_hdl;
   (void)chr;
   if (len < 1) return;
+  uint32_t now = millis();
+  uint8_t previous = currentState;
   currentState = data[0];  // loop() refreshes the LED within ~20ms
+  // Any write carrying a set color bit refreshes that bit's timeout clock
+  // (docs/protocol.md), so a future keepalive write could re-light a stale wait.
+  for (int i = 0; i < 3; i++) {
+    if (currentState & (1 << i)) colorRaisedAt[i] = now;
+  }
+  if (currentState != previous) stateChangedAt = now;
 }
 
 // Multi-connection (ADR 0004): connecting stops advertising and the library
@@ -129,10 +142,14 @@ void setup() {
 }
 
 void loop() {
-  // Display is a pure function of (state, time): cycle phase advances every
-  // CYCLE_MS, blink gates the whole display. No ordering-dependent state.
+  // Display is a pure function of (state, time): stale bits drop out after
+  // ATTENTION_TIMEOUT_MS, the cycle phase advances every CYCLE_MS, blink
+  // gates the whole display. No ordering-dependent state.
   uint32_t now = millis();
-  AttentionLed led = attention_display(currentState, now / CYCLE_MS);
+  uint8_t effective = attention_effective_state(
+      currentState, now - colorRaisedAt[0], now - colorRaisedAt[1],
+      now - colorRaisedAt[2], now - stateChangedAt, ATTENTION_TIMEOUT_MS);
+  AttentionLed led = attention_display(effective, now / CYCLE_MS);
   bool lit = !led.blink || ((now / BLINK_MS) % 2 == 0);
   applyLed(led, lit);
   delay(20);

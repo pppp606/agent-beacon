@@ -52,6 +52,19 @@
     { "state": 8, "phase": 1, "red": true, "green": false, "blue": false, "blink": true, "note": "fail-safe red is steady across phases" },
     { "state": 16, "phase": 2, "red": true, "green": false, "blue": false, "blink": false, "note": "fail-safe: reserved bit -> red solid" }
   ],
+  "display_timeout": [
+    { "state": 0, "elapsed_red": 0, "elapsed_green": 0, "elapsed_blue": 0, "elapsed_failsafe": 0, "timeout": 600000, "effective": 0, "note": "off stays off" },
+    { "state": 1, "elapsed_red": 599999, "elapsed_green": 0, "elapsed_blue": 0, "elapsed_failsafe": 0, "timeout": 600000, "effective": 1, "note": "just under the timeout: still shown" },
+    { "state": 1, "elapsed_red": 600000, "elapsed_green": 0, "elapsed_blue": 0, "elapsed_failsafe": 0, "timeout": 600000, "effective": 0, "note": "single stale bit goes fully dark, no fail-safe" },
+    { "state": 3, "elapsed_red": 660000, "elapsed_green": 60000, "elapsed_blue": 0, "elapsed_failsafe": 0, "timeout": 600000, "effective": 2, "note": "bits expire independently: red stale, green fresh" },
+    { "state": 7, "elapsed_red": 660000, "elapsed_green": 660000, "elapsed_blue": 660000, "elapsed_failsafe": 0, "timeout": 600000, "effective": 0, "note": "all stale -> dark" },
+    { "state": 11, "elapsed_red": 60000, "elapsed_green": 660000, "elapsed_blue": 0, "elapsed_failsafe": 0, "timeout": 600000, "effective": 9, "note": "blink rides along with the surviving bit" },
+    { "state": 11, "elapsed_red": 660000, "elapsed_green": 660000, "elapsed_blue": 0, "elapsed_failsafe": 0, "timeout": 600000, "effective": 0, "note": "blink does not outlive the color bits" },
+    { "state": 8, "elapsed_red": 0, "elapsed_green": 0, "elapsed_blue": 0, "elapsed_failsafe": 60000, "timeout": 600000, "effective": 8, "note": "fail-safe value on its own clock: fresh" },
+    { "state": 8, "elapsed_red": 0, "elapsed_green": 0, "elapsed_blue": 0, "elapsed_failsafe": 600000, "timeout": 600000, "effective": 0, "note": "fail-safe value times out too" },
+    { "state": 16, "elapsed_red": 0, "elapsed_green": 0, "elapsed_blue": 0, "elapsed_failsafe": 660000, "timeout": 600000, "effective": 0, "note": "reserved-bit value times out via the failsafe clock" },
+    { "state": 5, "elapsed_red": 60000, "elapsed_green": 0, "elapsed_blue": 660000, "elapsed_failsafe": 0, "timeout": 600000, "effective": 1, "note": "red survives, blue stale" }
+  ],
   "rmw": [
     { "op": "set", "current": 0, "bit": 1, "blink": false, "result": 1, "note": "first host in" },
     { "op": "set", "current": 1, "bit": 2, "blink": false, "result": 3, "note": "second host joins, first is kept" },

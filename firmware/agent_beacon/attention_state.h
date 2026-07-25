@@ -30,6 +30,36 @@ inline AttentionLed attention_decode(uint8_t state) {
   return led;
 }
 
+// Display timeout (docs/protocol.md): a wait shown this long means the human
+// is not around to see it, so each color bit's display expires independently,
+// this many ms after that bit was last raised. Display-only: the state byte
+// (and what Read returns) is untouched.
+const uint32_t ATTENTION_TIMEOUT_MS = 10UL * 60UL * 1000UL;
+
+// Maps the state byte to the byte actually displayed, given how long ago
+// each color bit was last raised. A colorless non-zero value (the fail-safe
+// case) expires on its own clock, counted from the last state change. Once
+// everything is stale the result is 0x00 — dark, never fail-safe red: that
+// rule is for unknown values, not stale ones.
+inline uint8_t attention_effective_state(uint8_t state,
+                                         uint32_t elapsed_red,
+                                         uint32_t elapsed_green,
+                                         uint32_t elapsed_blue,
+                                         uint32_t elapsed_failsafe,
+                                         uint32_t timeout_ms) {
+  if (state == 0x00) return 0x00;
+  uint8_t color = state & ATTENTION_COLOR_MASK;
+  if (color == 0x00) {
+    return elapsed_failsafe < timeout_ms ? state : 0x00;
+  }
+  uint8_t visible = 0;
+  if ((color & 0x01) && elapsed_red < timeout_ms) visible |= 0x01;
+  if ((color & 0x02) && elapsed_green < timeout_ms) visible |= 0x02;
+  if ((color & 0x04) && elapsed_blue < timeout_ms) visible |= 0x04;
+  if (visible == 0x00) return 0x00;
+  return visible | (state & ATTENTION_BLINK_BIT);
+}
+
 // v0.2 display (docs/protocol.md, ADR 0004): when several color bits are set
 // they are shown one at a time, cycling in bit order (red, green, blue) as
 // `phase` advances; the RGB package would otherwise blend them into a single

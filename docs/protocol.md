@@ -74,6 +74,27 @@ The display is defined as a pure function of (state byte, phase number) →
 one color for that instant (`attention_display` in `attention_state.h`), so
 it never depends on write order or timing.
 
+### Display timeout (v0.2)
+
+A wait that has been shown for a long time means the human is not around to
+see it, so **each color bit's display times out independently 10 minutes
+after that bit was last raised**. This is a display-only policy:
+
+- The state byte is untouched — Read still returns the full set of waiting
+  hosts, and hosts keep operating on it as usual. Only the LED goes dark
+- Each color bit has its own clock: a bit's timer refreshes whenever a
+  received write has that bit set. Bits time out one by one, in the order
+  they were raised
+- An expired display **never falls back to fail-safe red**: once every
+  visible bit has expired the LED is fully dark. (The fail-safe rule is
+  about unknown *values*, not stale ones; a colorless non-zero value times
+  out on its own 10-minute clock from the last state change)
+- The blink bit rides along with whatever is still visible
+
+Like the cycling display, this is a pure function — state byte + per-bit
+elapsed times → the byte actually shown (`attention_effective_state` in
+`attention_state.h`) — and is covered by the shared test vectors.
+
 ### Host assignment and read-modify-write (v0.2 convention)
 
 To share one beacon across several hosts, the color bits are used as

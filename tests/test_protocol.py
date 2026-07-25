@@ -39,6 +39,13 @@ def firmware_display(harness, state: int, phase: int) -> dict:
     return {"red": red, "green": green, "blue": blue, "blink": blink}
 
 
+def firmware_effective(harness, state: int, elapsed_rgb_failsafe, timeout: int) -> int:
+    args = [str(state)] + [str(v) for v in elapsed_rgb_failsafe] + [str(timeout)]
+    out = subprocess.run([str(harness), *args], check=True,
+                         capture_output=True, text=True).stdout
+    return int(out)
+
+
 @pytest.mark.parametrize("case", VECTORS["decode"],
                          ids=lambda c: f"0x{c['state']:02x}-{c['note']}")
 def test_firmware_decode(harness, case):
@@ -101,6 +108,33 @@ def test_display_shows_one_color_at_a_time_and_covers_all(harness):
             assert got["blink"] == decoded["blink"]
             seen |= lit
         assert seen == active, f"state 0x{state:02x} cycle missed a color"
+
+
+# ---------- v0.2: per-bit display timeout ----------
+
+@pytest.mark.parametrize("case", VECTORS["display_timeout"],
+                         ids=lambda c: f"0x{c['state']:02x}-{c['note'][:24]}")
+def test_firmware_display_timeout(harness, case):
+    elapsed = (case["elapsed_red"], case["elapsed_green"], case["elapsed_blue"],
+               case["elapsed_failsafe"])
+    got = firmware_effective(harness, case["state"], elapsed, case["timeout"])
+    assert got == case["effective"]
+
+
+def test_expired_display_is_dark_never_failsafe_red(harness):
+    """Once everything is stale the LED must be fully dark for every state:
+    the fail-safe rule covers unknown values, not stale ones."""
+    stale = (10_000_000,) * 4
+    for state in range(256):
+        assert firmware_effective(harness, state, stale, 600_000) == 0x00
+
+
+def test_fresh_display_is_unchanged(harness):
+    """With all timers fresh, the effective byte is the state byte itself
+    (reserved bits aside): the timeout must not alter normal display."""
+    fresh = (0, 0, 0, 0)
+    for state in range(16):
+        assert firmware_effective(harness, state, fresh, 600_000) == state
 
 
 # ---------- v0.2: host read-modify-write (ADR 0004) ----------
