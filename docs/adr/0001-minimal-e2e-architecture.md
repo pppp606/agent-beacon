@@ -90,13 +90,20 @@ Device nameやscan順序ではなくこのIDでBeaconを指定する。方式の
 
 `.claude/settings.json` のHookでLEDを制御する。画面パースやtmux監視は使わない。
 
-| 状態 | Hookイベント | 動作 |
+| 状態 | Hookイベント | セッション状態 |
 |---|---|---|
-| 承認待ち | `Notification` (matcher: `permission_prompt`) | ON |
-| 入力待ち(ターン終了) | `Stop` | ON |
-| 入力待ち(idle通知) | `Notification` (matcher: `idle_prompt`) | ON |
-| 人間がプロンプト送信 | `UserPromptSubmit` | OFF |
-| 承認されてツール実行再開 | `PreToolUse` | OFF |
+| 承認待ち | `Notification` (matcher: `permission_prompt`) | waiting |
+| 入力待ち(ターン終了) | `Stop` | waiting |
+| 入力待ち(idle通知) | `Notification` (matcher: `idle_prompt`) | waiting |
+| 人間がプロンプト送信 | `UserPromptSubmit` | working |
+| 承認されてツール実行再開 | `PreToolUse` | working |
+| セッション開始/再開 | `SessionStart` | working |
+| セッション終了 | `SessionEnd` | (削除) |
+
+LEDは単一セッションの状態ではなく**セッション集合の集約**
+(どれか1つでもwaitingならON)。実装は `integrations/claude-code/attention_hook.py`:
+Hook本体はセッション状態ファイルの更新だけで即終了し、BLE書き込みは
+デタッチされた収束プロセスが行う(Claude Codeをブロックしない)。
 
 補足:
 
@@ -104,10 +111,9 @@ Device nameやscan順序ではなくこのIDでBeaconを指定する。方式の
   即時に拾うには `Stop` が確実。両方ONにしても冪等なので害はない。
 - `PreToolUse` を使う理由: permission承認後は `UserPromptSubmit` が発火しないため、
   ツール実行再開をOFFのトリガーにする。
-- `PreToolUse` は高頻度に発火するため、Hookスクリプトはローカルの状態ファイル
-  (例: `/tmp/agent-beacon.state`)と比較して**状態が変わるときだけ** `beaconctl` を呼ぶ。
-- 全HookのJSON入力(stdin)には `session_id` が含まれる。v0.1は単一セッション前提だが、
-  将来は「セッションごとの状態ファイル + どれか1つでも待ちならON」で複数セッションに拡張できる。
+- `PreToolUse` は高頻度に発火するため、集約結果が変わるときだけBLEに書く
+  (desired/appliedの比較)。BLE書き込み失敗時はappliedを更新せず、次のイベントで
+  自動リトライ = 最新状態への収束が保証される。
 
 ## 作らないもの(Non-goals)
 
