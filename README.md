@@ -137,7 +137,25 @@ uv run cli/beaconctl.py use 5e6f7a8b --color blue
 
 No beacon-side work is needed — run `/beacon-setup` (or the two commands
 above plus the hook installer) on each additional Mac and you are done.
-Three hosts per beacon for now; more requires the planned v0.3 protocol.
+
+**Three hosts per beacon is a deliberate ceiling**, not a technical one: on
+a tiny LED, red/green/blue are the only colors a human reliably tells apart
+at a glance, and a light you have to think about defeats its purpose. To go
+beyond three machines, add beacons and let *placement* do the identifying —
+machine identity becomes (beacon position × color), and both are things you
+perceive without thinking:
+
+```
+desk left           desk right
+● beacon L          ● beacon R
+red   = laptop      red   = build server
+green = desktop     green = test rig
+blue  = home lab    blue  = spare
+```
+
+Each beacon is addressed by its factory-unique ID, so any Mac can point at
+any beacon with one `use` command — grouping is purely a matter of which ID
+each Mac is configured to write to.
 
 ## Development and testing
 
