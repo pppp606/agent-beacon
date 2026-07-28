@@ -34,11 +34,20 @@ appears. It also heals drift after a beacon power-cycle or a manual
 
 ## Install
 
+Guided (recommended): open Claude Code in this repository and run
+`/beacon-setup` — it scans for the beacon, assigns this Mac's color,
+verifies the BLE round-trip, and installs the hooks.
+
+Scripted:
+
 1. Set up the beacon first (`beaconctl use <id>` done — see the root README)
-2. In `settings.example.json`, replace `/PATH/TO/agent-beacon` with this
-   repository's absolute path
-3. Merge its `hooks` into `~/.claude/settings.json` (to enable for all
-   projects), or into a specific project's `.claude/settings.json`
+2. `python3 integrations/claude-code/install.py` — merges the hooks into
+   `~/.claude/settings.json` (add `--settings <path>` for a project-local
+   file). Idempotent, backs up the file, and resolves this repository's
+   absolute path automatically; rerun it after moving the checkout
+
+`settings.example.json` documents the resulting hook entries for manual
+setups.
 
 Requirements: `python3` (standard library only) and `uv` (the BLE write
 process runs `uv run cli/beaconctl.py`).
