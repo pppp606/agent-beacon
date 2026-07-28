@@ -104,6 +104,23 @@ void disconnectCallback(uint16_t conn_hdl, uint8_t reason) {
   }
 }
 
+// Adaptive advertising (ADR 0006): while the display is lit a host write
+// (the human answering -> OFF) is imminent, so advertise fast for snappy
+// discovery; while dark — the vast majority of battery life — slow down.
+// Lit time is bounded by the display timeout, so the fast profile is cheap.
+const uint16_t ADV_FAST_UNITS = 32;       // 20ms burst phase
+const uint16_t ADV_LIT_UNITS = 244;       // 152.5ms while lit
+const uint16_t ADV_DARK_UNITS = 800;      // 500ms on standby
+bool advertisingLit = false;
+
+void setAdvertisingProfile(bool lit) {
+  advertisingLit = lit;
+  Bluefruit.Advertising.stop();
+  Bluefruit.Advertising.setInterval(ADV_FAST_UNITS,
+                                    lit ? ADV_LIT_UNITS : ADV_DARK_UNITS);
+  Bluefruit.Advertising.start(0);
+}
+
 void startAdvertising() {
   Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
   Bluefruit.Advertising.addService(attentionService);
@@ -119,11 +136,8 @@ void startAdvertising() {
   Bluefruit.ScanResponse.addName();
 
   Bluefruit.Advertising.restartOnDisconnect(true);
-  // 20ms fast for the first 30s (snappy setup), then 1s: the radio is the
-  // dominant standby consumer and a slow interval cuts it ~6x, at the cost
-  // of ≤1s extra latency from hook event to LED (ADR 0006)
-  Bluefruit.Advertising.setInterval(32, 1600);
-  Bluefruit.Advertising.setFastTimeout(30);
+  Bluefruit.Advertising.setInterval(ADV_FAST_UNITS, ADV_DARK_UNITS);
+  Bluefruit.Advertising.setFastTimeout(10);  // 20ms burst after boot/connects
   Bluefruit.Advertising.start(0);  // advertise forever
 }
 
@@ -201,6 +215,12 @@ void loop() {
   if (imuArmed && effective == 0x00) {
     imuTapPowerOff();
     imuArmed = false;
+  }
+
+  // Advertising speed follows the display too (fast while lit -> the OFF
+  // write that ends a wait is discovered quickly)
+  if ((effective != 0x00) != advertisingLit) {
+    setAdvertisingProfile(effective != 0x00);
   }
   AttentionLed led = attention_display(effective, now / CYCLE_MS);
   bool lit = !led.blink || ((now / BLINK_MS) % 2 == 0);

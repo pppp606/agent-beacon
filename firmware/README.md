@@ -64,9 +64,10 @@ If serial flashing fails, use UF2:
   while connected, so other Macs can still see the beacon (ADR 0004)
 - State survives disconnection
 - Battery-friendly ([ADR 0006](../docs/adr/0006-power-strategy.md)): the
-  IMU is powered only while the display is lit, advertising slows to 1s
-  (after 30s fast) at 0dBm, and the LED is PWM-dimmed to ~25% with the PWM
-  peripheral stopped when dark. Costs up to ~1s extra event-to-LED latency
+  IMU rail and the advertising speed both follow the display — IMU powered
+  and advertising fast (152.5ms) only while lit, 500ms advertising on dark
+  standby, TX 0dBm, LED PWM-dimmed to ~25% with the PWM peripheral stopped
+  when dark
 
 ## Tuning
 

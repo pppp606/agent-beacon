@@ -29,15 +29,25 @@ LED lighting). The boot-time presence probe stays, so plain boards still
 run the same binary. Bus pins go no-pull while the rail is down — a pull-up
 would leak into the unpowered chip through its I/O pins.
 
-### 2. Slower advertising, lower TX power
+### 2. Adaptive advertising, lower TX power
 
-- Advertising: 20ms for the first 30s after boot/disconnect (snappy setup),
-  then **1s** instead of 152.5ms — about 6x less radio energy on standby
+Discovery latency is what the host pays before every write, and its cost is
+asymmetric: while the display is **lit**, the next write is the OFF that a
+human is about to trigger — they are watching the LED, so discovery must be
+fast. While **dark** (the vast majority of battery life) the next write is
+an ON the human is not watching for, so an extra second is invisible.
+
+- **Lit: 152.5ms** interval (plus a 20ms burst for 10s after each start /
+  connection). Lit time is bounded by the display timeout, so this profile
+  costs almost nothing over a battery cycle
+- **Dark: 500ms** — ~3x less standby radio than the old always-152.5ms.
+  A first version used 1s here for ~6x, but macOS's duty-cycled scanner
+  then took multi-second to discover the beacon and turning OFF felt
+  sluggish; 500ms restores sub-second-ish discovery
 - TX power: **0dBm** instead of +4dBm; the beacon sits meters from its hosts
 
-Accepted tradeoff: up to ~1s extra latency from hook event to LED. The
-product's notification loop is human-scale (the display persists until
-answered), so 2-3s worst-case is fine. `make test-e2e` passes unchanged.
+The profile follows the effective display state, same as the IMU rail.
+`make test-e2e` passes unchanged.
 
 ### 3. LED dimming via hardware PWM
 
