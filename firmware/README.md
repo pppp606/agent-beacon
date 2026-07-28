@@ -56,6 +56,10 @@ If serial flashing fails, use UF2:
 - Display timeout: each color bit goes dark 10 minutes after it was last
   raised (a wait lit that long means nobody is around). Display-only — the
   state byte and Read are untouched ([docs/protocol.md](../docs/protocol.md))
+- Tap to dismiss (Sense boards only): double-tap the board to expire the
+  display immediately — same semantics as the timeout firing early. Detected
+  by the onboard IMU's hardware tap engine; on plain boards the same binary
+  disables the feature at boot
 - Four concurrent connection slots (3 hosts + slack). Advertising continues
   while connected, so other Macs can still see the beacon (ADR 0004)
 - State survives disconnection

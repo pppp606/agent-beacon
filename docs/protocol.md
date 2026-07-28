@@ -95,6 +95,13 @@ Like the cycling display, this is a pure function — state byte + per-bit
 elapsed times → the byte actually shown (`attention_effective_state` in
 `attention_state.h`) — and is covered by the shared test vectors.
 
+**Tap to dismiss (boards with an IMU)**: a double-tap on the device
+fast-forwards every running display clock to expired — the LED goes dark at
+once, exactly as if the timeout had fired. The state byte is untouched (Read
+still reports the waiting hosts) and a later write that raises a color bit
+re-lights the display as usual. Boards without the IMU (the plain XIAO) run
+the same firmware with the feature disabled at boot.
+
 ### Host assignment and read-modify-write (v0.2 convention)
 
 To share one beacon across several hosts, the color bits are used as

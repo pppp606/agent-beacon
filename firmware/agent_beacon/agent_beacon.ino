@@ -10,6 +10,7 @@
 #include <bluefruit.h>
 
 #include "attention_state.h"
+#include "imu_tap.h"
 
 // 128-bit UUIDs from docs/protocol.md, in little-endian byte order.
 // Base: 7b1fXXXX-9f02-4c60-b0f7-a9f6a4b0beac
@@ -42,6 +43,9 @@ const uint32_t BLINK_MS = 250;  // half-period, ~2Hz
 // raised, plus the last state change for the colorless fail-safe case.
 uint32_t colorRaisedAt[3] = {0, 0, 0};
 uint32_t stateChangedAt = 0;
+
+// Tap-to-dismiss (docs/protocol.md): true only when an IMU is present (Sense)
+bool tapDismissEnabled = false;
 
 // Onboard RGB LED is active low
 void applyLed(const AttentionLed& led, bool lit) {
@@ -139,6 +143,8 @@ void setup() {
   deviceIdChr.write(fullId, 16);
 
   startAdvertising();
+
+  tapDismissEnabled = imuTapBegin();
 }
 
 void loop() {
@@ -146,6 +152,16 @@ void loop() {
   // ATTENTION_TIMEOUT_MS, the cycle phase advances every CYCLE_MS, blink
   // gates the whole display. No ordering-dependent state.
   uint32_t now = millis();
+
+  // Double-tap = the human saw it: fast-forward every display clock to
+  // expired, exactly as if the timeout had fired (docs/protocol.md). The
+  // state byte stays untouched; the next write raising a bit re-lights.
+  if (tapDismissEnabled && imuTapPending()) {
+    uint32_t expired = now - ATTENTION_TIMEOUT_MS;
+    colorRaisedAt[0] = colorRaisedAt[1] = colorRaisedAt[2] = expired;
+    stateChangedAt = expired;
+  }
+
   uint8_t effective = attention_effective_state(
       currentState, now - colorRaisedAt[0], now - colorRaisedAt[1],
       now - colorRaisedAt[2], now - stateChangedAt, ATTENTION_TIMEOUT_MS);
