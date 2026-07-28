@@ -67,3 +67,15 @@ If serial flashing fails, use UF2:
   IMU is powered only while the display is lit, advertising slows to 1s
   (after 30s fast) at 0dBm, and the LED is PWM-dimmed to ~25% with the PWM
   peripheral stopped when dark. Costs up to ~1s extra event-to-LED latency
+
+## Tuning
+
+**LED brightness**: `LED_DUTY` in `agent_beacon/agent_beacon.ino` (0-255,
+default 64 ≈ 25% — chosen as indoors-visible while cutting the lit current
+to about a quarter). Raise it for a bright room, then reflash:
+
+```sh
+make flash
+```
+
+Brightness is display-only: no protocol or host-side change is involved.
