@@ -220,12 +220,17 @@ async def cmd_rmw(args, op: str) -> int:
     async with BleakClient(device) as client:
         current = (await client.read_gatt_char(ATTENTION_STATE_UUID))[0]
         if op == "on":
+            # Always write, even when the byte is unchanged: the write itself
+            # refreshes the beacon's display-timeout clocks (docs/protocol.md),
+            # so a tap-dismissed or timed-out display re-lights on every raise.
             new = rmw_set(current, bits, args.blink)
-        else:
-            new = rmw_clear(current, bits)
-        if new != current:
             await client.write_gatt_char(ATTENTION_STATE_UUID,
                                          bytes([new]), response=True)
+        else:
+            new = rmw_clear(current, bits)
+            if new != current:
+                await client.write_gatt_char(ATTENTION_STATE_UUID,
+                                             bytes([new]), response=True)
     return 0
 
 

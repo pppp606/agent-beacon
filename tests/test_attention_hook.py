@@ -105,20 +105,33 @@ class TestEndToEndFlow:
         drive(state_dir, event("UserPromptSubmit"))
         assert calls_of(ctl_calls) == ["on", "off"]
 
-    def test_converged_state_writes_nothing(self, state_dir, ctl_calls):
+    def test_every_waiting_event_rewrites_on(self, state_dir, ctl_calls):
+        """Every waiting transition writes ON even when the beacon is already
+        on: the write refreshes the beacon's display-timeout clocks, so a
+        display dismissed by tap or timeout re-lights for each new wait."""
         drive(state_dir, event("Stop", sid="a"))
         drive(state_dir, event("Stop", sid="b"))
         drive(state_dir, event("Notification", sid="a",
                                notification_type="idle_prompt"))
-        assert calls_of(ctl_calls) == ["on"]
+        assert calls_of(ctl_calls) == ["on", "on", "on"]
+
+    def test_working_events_do_not_rewrite_while_converged(self, state_dir, ctl_calls):
+        """Only waiting transitions force a rewrite; working transitions that
+        do not change the aggregate write nothing."""
+        drive(state_dir, event("Stop", sid="a"))
+        drive(state_dir, event("Stop", sid="b"))
+        drive(state_dir, event("UserPromptSubmit", sid="a"))
+        assert calls_of(ctl_calls) == ["on", "on"], "b still waiting: no write"
+        drive(state_dir, event("PreToolUse", sid="a"))
+        assert calls_of(ctl_calls) == ["on", "on"]
 
     def test_beacon_stays_on_until_every_session_is_answered(self, state_dir, ctl_calls):
         drive(state_dir, event("Stop", sid="a"))
         drive(state_dir, event("Stop", sid="b"))
         drive(state_dir, event("UserPromptSubmit", sid="a"))
-        assert calls_of(ctl_calls) == ["on"], "b is still waiting"
+        assert calls_of(ctl_calls) == ["on", "on"], "b is still waiting"
         drive(state_dir, event("UserPromptSubmit", sid="b"))
-        assert calls_of(ctl_calls) == ["on", "off"]
+        assert calls_of(ctl_calls) == ["on", "on", "off"]
 
     def test_permission_prompt_then_tool_resume(self, state_dir, ctl_calls):
         # The very first event finds `applied` unknown (the beacon could be

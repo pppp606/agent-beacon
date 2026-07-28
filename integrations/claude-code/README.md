@@ -26,6 +26,12 @@ that converges to the latest state via a desired/applied file pair. An event
 reaches the LED in about 1-2 seconds (scanning is cut short the moment the
 target beacon's advertising is seen, then connect and write).
 
+Every waiting transition writes ON even when the beacon is already on: the
+write refreshes the beacon's display-timeout clocks, so a display dismissed
+by a double-tap or by the 10-minute timeout re-lights whenever a new wait
+appears. It also heals drift after a beacon power-cycle or a manual
+`beaconctl off`.
+
 ## Install
 
 1. Set up the beacon first (`beaconctl use <id>` done — see the root README)

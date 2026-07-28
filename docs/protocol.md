@@ -98,9 +98,10 @@ elapsed times → the byte actually shown (`attention_effective_state` in
 **Tap to dismiss (boards with an IMU)**: a double-tap on the device
 fast-forwards every running display clock to expired — the LED goes dark at
 once, exactly as if the timeout had fired. The state byte is untouched (Read
-still reports the waiting hosts) and a later write that raises a color bit
-re-lights the display as usual. Boards without the IMU (the plain XIAO) run
-the same firmware with the feature disabled at boot.
+still reports the waiting hosts) and the next write carrying a color bit
+re-lights the display as usual — hosts should therefore write ON on every
+new wait, even when their bit is already set. Boards without the IMU (the
+plain XIAO) run the same firmware with the feature disabled at boot.
 
 ### Host assignment and read-modify-write (v0.2 convention)
 

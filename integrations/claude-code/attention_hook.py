@@ -153,6 +153,16 @@ def handle_event(d: Path, payload: dict) -> str | None:
         else:
             session_file.parent.mkdir(parents=True, exist_ok=True)
             session_file.write_text(transition)
+        if transition == WAITING:
+            # Force a rewrite even when the beacon is already "on": the BLE
+            # write refreshes the beacon's display-timeout clocks, so a
+            # display dismissed by tap or timeout re-lights for every new
+            # wait (docs/protocol.md). Also heals drift after a beacon
+            # power-cycle or a manual `beaconctl off`.
+            try:
+                (d / "applied").unlink()
+            except FileNotFoundError:
+                pass
         desired = desired_state(read_sessions(d))
         (d / "desired").write_text(desired)
     log(d, f"{payload.get('hook_event_name')} session={session_id} "
