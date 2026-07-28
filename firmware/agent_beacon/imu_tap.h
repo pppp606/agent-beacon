@@ -132,10 +132,15 @@ static bool imuReadReg(uint8_t reg, uint8_t* out) {
 }
 
 // ---------- public API ----------
+//
+// Power gating: tap detection at 416Hz costs ~170µA, but a tap is only
+// meaningful while the display is lit — so the sketch powers the IMU rail
+// on when the display lights and cuts it when it goes dark. Probe once at
+// boot to learn whether the board has an IMU at all.
 
-// Powers the IMU and arms its double-tap engine. Returns false (feature
-// disabled, rail powered back down) when no LSM6DS3TR-C answers.
-static bool imuTapBegin() {
+static void imuRailOn() {
+  // High drive is mandatory: the chip is powered from this GPIO and browns
+  // out under standard drive (official devicetree: NRF_GPIO_DRIVE_S0H1)
   nrf_gpio_cfg(IMU_PIN_POWER, NRF_GPIO_PIN_DIR_OUTPUT,
                NRF_GPIO_PIN_INPUT_DISCONNECT, NRF_GPIO_PIN_NOPULL,
                NRF_GPIO_PIN_S0H1, NRF_GPIO_PIN_NOSENSE);
@@ -145,13 +150,29 @@ static bool imuTapBegin() {
   imuPinRelease(IMU_PIN_SCL);
   nrf_gpio_cfg_input(IMU_PIN_INT1, NRF_GPIO_PIN_PULLDOWN);
   delay(5);
+}
 
+// Cuts the IMU power rail. Bus pins go no-pull: a pull-up would leak
+// current into the unpowered chip through its I/O pins.
+static void imuTapPowerOff() {
+  nrf_gpio_pin_clear(IMU_PIN_POWER);
+  nrf_gpio_cfg_input(IMU_PIN_SDA, NRF_GPIO_PIN_NOPULL);
+  nrf_gpio_cfg_input(IMU_PIN_SCL, NRF_GPIO_PIN_NOPULL);
+}
+
+// Boot-time check: does this board have the IMU? Leaves the rail off.
+static bool imuTapProbe() {
+  imuRailOn();
   uint8_t who = 0;
-  if (!imuReadReg(IMU_REG_WHO_AM_I, &who) || who != IMU_WHO_AM_I_VALUE) {
-    nrf_gpio_pin_clear(IMU_PIN_POWER);
-    return false;
-  }
+  bool present = imuReadReg(IMU_REG_WHO_AM_I, &who) && who == IMU_WHO_AM_I_VALUE;
+  imuTapPowerOff();
+  return present;
+}
 
+// Powers the IMU and arms its double-tap engine (config registers are
+// volatile, so they are rewritten on every power-up).
+static bool imuTapPowerOn() {
+  imuRailOn();
   // Double-tap engine per ST AN5130
   bool ok = true;
   ok = ok && imuWriteReg(IMU_REG_CTRL1_XL, 0x60);     // accel 416Hz, ±2g
@@ -160,6 +181,7 @@ static bool imuTapBegin() {
   ok = ok && imuWriteReg(IMU_REG_INT_DUR2, 0x7F);     // dur/quiet/shock windows
   ok = ok && imuWriteReg(IMU_REG_WAKE_UP_THS, 0x80);  // double-tap mode
   ok = ok && imuWriteReg(IMU_REG_MD1_CFG, 0x08);      // route double-tap to INT1
+  if (!ok) imuTapPowerOff();
   return ok;
 }
 

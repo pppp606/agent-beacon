@@ -44,14 +44,32 @@ const uint32_t BLINK_MS = 250;  // half-period, ~2Hz
 uint32_t colorRaisedAt[3] = {0, 0, 0};
 uint32_t stateChangedAt = 0;
 
-// Tap-to-dismiss (docs/protocol.md): true only when an IMU is present (Sense)
-bool tapDismissEnabled = false;
+// Tap-to-dismiss (docs/protocol.md): probed once at boot; the IMU rail is
+// then powered only while the display is lit (a tap means nothing in the
+// dark, and 416Hz tap detection costs ~170µA — ADR 0006)
+bool imuPresent = false;
+bool imuArmed = false;
 
-// Onboard RGB LED is active low
+// LED brightness, 0-255. ~25% is indistinguishable indoors from full drive
+// but cuts the lit current to roughly a quarter (ADR 0006)
+const uint16_t LED_DUTY = 64;
+
+// Onboard RGB LED is active low, dimmed by hardware PWM. The PWM peripheral
+// is stopped whenever every element is dark so it costs nothing on standby.
 void applyLed(const AttentionLed& led, bool lit) {
-  digitalWrite(LED_RED, (lit && led.red) ? LOW : HIGH);
-  digitalWrite(LED_GREEN, (lit && led.green) ? LOW : HIGH);
-  digitalWrite(LED_BLUE, (lit && led.blue) ? LOW : HIGH);
+  bool any = lit && (led.red || led.green || led.blue);
+  if (!any) {
+    if (HwPWM0.enabled()) HwPWM0.stop();  // GPIO (driven HIGH) takes over
+    digitalWrite(LED_RED, HIGH);
+    digitalWrite(LED_GREEN, HIGH);
+    digitalWrite(LED_BLUE, HIGH);
+    return;
+  }
+  if (!HwPWM0.enabled()) HwPWM0.begin();
+  // inverted: the LED is on while the pin is low, for `duty` of each period
+  HwPWM0.writePin(LED_RED, led.red ? LED_DUTY : 0, true);
+  HwPWM0.writePin(LED_GREEN, led.green ? LED_DUTY : 0, true);
+  HwPWM0.writePin(LED_BLUE, led.blue ? LED_DUTY : 0, true);
 }
 
 void attentionWriteCallback(uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
@@ -101,7 +119,10 @@ void startAdvertising() {
   Bluefruit.ScanResponse.addName();
 
   Bluefruit.Advertising.restartOnDisconnect(true);
-  Bluefruit.Advertising.setInterval(32, 244);  // 20ms fast, 152.5ms slow
+  // 20ms fast for the first 30s (snappy setup), then 1s: the radio is the
+  // dominant standby consumer and a slow interval cuts it ~6x, at the cost
+  // of ≤1s extra latency from hook event to LED (ADR 0006)
+  Bluefruit.Advertising.setInterval(32, 1600);
   Bluefruit.Advertising.setFastTimeout(30);
   Bluefruit.Advertising.start(0);  // advertise forever
 }
@@ -110,6 +131,11 @@ void setup() {
   pinMode(LED_RED, OUTPUT);
   pinMode(LED_GREEN, OUTPUT);
   pinMode(LED_BLUE, OUTPUT);
+  HwPWM0.takeOwnership(0xA6BEAC00);
+  HwPWM0.addPin(LED_RED);
+  HwPWM0.addPin(LED_GREEN);
+  HwPWM0.addPin(LED_BLUE);
+  HwPWM0.setResolution(8);
   applyLed(attention_decode(currentState), true);
 
   // The LED means "attention", nothing else: disable the core's BLE status
@@ -117,7 +143,8 @@ void setup() {
   Bluefruit.autoConnLed(false);
   Bluefruit.begin(4, 0);  // up to 4 concurrent centrals: 3 hosts + slack (ADR 0004)
   digitalWrite(LED_BLUE, HIGH);
-  Bluefruit.setTxPower(4);
+  // 0dBm reaches across a room; +4dBm only spends battery (ADR 0006)
+  Bluefruit.setTxPower(0);
   Bluefruit.setName("AgentBeacon");
   Bluefruit.Periph.setConnectCallback(connectCallback);
   Bluefruit.Periph.setDisconnectCallback(disconnectCallback);
@@ -144,7 +171,7 @@ void setup() {
 
   startAdvertising();
 
-  tapDismissEnabled = imuTapBegin();
+  imuPresent = imuTapProbe();  // rail stays off until the display lights
 }
 
 void loop() {
@@ -152,19 +179,29 @@ void loop() {
   // ATTENTION_TIMEOUT_MS, the cycle phase advances every CYCLE_MS, blink
   // gates the whole display. No ordering-dependent state.
   uint32_t now = millis();
+  uint8_t effective = attention_effective_state(
+      currentState, now - colorRaisedAt[0], now - colorRaisedAt[1],
+      now - colorRaisedAt[2], now - stateChangedAt, ATTENTION_TIMEOUT_MS);
+
+  // The IMU rail follows the display: powered while lit, dark means off
+  if (imuPresent && effective != 0x00 && !imuArmed) {
+    imuArmed = imuTapPowerOn();
+  }
 
   // Double-tap = the human saw it: fast-forward every display clock to
   // expired, exactly as if the timeout had fired (docs/protocol.md). The
   // state byte stays untouched; the next write raising a bit re-lights.
-  if (tapDismissEnabled && imuTapPending()) {
+  if (imuArmed && imuTapPending()) {
     uint32_t expired = now - ATTENTION_TIMEOUT_MS;
     colorRaisedAt[0] = colorRaisedAt[1] = colorRaisedAt[2] = expired;
     stateChangedAt = expired;
+    effective = 0x00;
   }
 
-  uint8_t effective = attention_effective_state(
-      currentState, now - colorRaisedAt[0], now - colorRaisedAt[1],
-      now - colorRaisedAt[2], now - stateChangedAt, ATTENTION_TIMEOUT_MS);
+  if (imuArmed && effective == 0x00) {
+    imuTapPowerOff();
+    imuArmed = false;
+  }
   AttentionLed led = attention_display(effective, now / CYCLE_MS);
   bool lit = !led.blink || ((now / BLINK_MS) % 2 == 0);
   applyLed(led, lit);

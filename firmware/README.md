@@ -63,3 +63,7 @@ If serial flashing fails, use UF2:
 - Four concurrent connection slots (3 hosts + slack). Advertising continues
   while connected, so other Macs can still see the beacon (ADR 0004)
 - State survives disconnection
+- Battery-friendly ([ADR 0006](../docs/adr/0006-power-strategy.md)): the
+  IMU is powered only while the display is lit, advertising slows to 1s
+  (after 30s fast) at 0dBm, and the LED is PWM-dimmed to ~25% with the PWM
+  peripheral stopped when dark. Costs up to ~1s extra event-to-LED latency
