@@ -41,6 +41,14 @@ EVENTS: dict = {
 }
 
 
+def hook_command(ctl: str | None = None) -> str:
+    """The command each hook entry runs; ctl swaps the BLE writer for a
+    zero-dependency client (ADR 0005) via the AGENT_BEACON_CTL override
+    that attention_hook.py honors."""
+    prefix = f"AGENT_BEACON_CTL={ctl} " if ctl else ""
+    return f"{prefix}python3 {HOOK_SCRIPT}"
+
+
 def merge_hooks(settings: dict, hook_command: str) -> dict:
     """Pure merge: returns settings with exactly one agent-beacon entry per
     event, all other hooks untouched. Running it twice is a no-op."""
@@ -66,7 +74,12 @@ def main(argv: list) -> int:
                         default=str(Path.home() / ".claude" / "settings.json"),
                         help="Claude Code settings file to merge into "
                              "(default: ~/.claude/settings.json)")
+    parser.add_argument("--ctl", metavar="PATH",
+                        help="beaconctl replacement the hook should invoke, "
+                             "e.g. cli/beaconctl_lite.swift on hosts that "
+                             "cannot install libraries (ADR 0005)")
     args = parser.parse_args(argv)
+    ctl = str(Path(args.ctl).expanduser().resolve()) if args.ctl else None
 
     target = Path(args.settings).expanduser()
     if target.exists():
@@ -79,7 +92,7 @@ def main(argv: list) -> int:
     else:
         settings = {}
 
-    merged = merge_hooks(settings, f"python3 {HOOK_SCRIPT}")
+    merged = merge_hooks(settings, hook_command(ctl))
     if merged == settings:
         print(f"Already installed in {target}; nothing to do.")
         return 0

@@ -53,3 +53,22 @@ class TestMergeHooks:
         install.merge_hooks(settings, CMD)
         assert settings["hooks"]["Stop"][0]["hooks"][0]["command"] == "say done"
         assert len(settings["hooks"]) == 1
+
+
+class TestHookCommand:
+    def test_default_uses_python_cli(self):
+        cmd = install.hook_command()
+        assert cmd == f"python3 {install.HOOK_SCRIPT}"
+
+    def test_ctl_prefixes_env_override(self):
+        cmd = install.hook_command("/repo/cli/beaconctl_lite.swift")
+        assert cmd == ("AGENT_BEACON_CTL=/repo/cli/beaconctl_lite.swift "
+                       f"python3 {install.HOOK_SCRIPT}")
+
+    def test_ctl_swap_replaces_previous_install(self):
+        # Re-running with --ctl must replace the plain entry, not add to it
+        once = install.merge_hooks({}, install.hook_command())
+        twice = install.merge_hooks(once, install.hook_command("/r/lite.swift"))
+        for event in install.EVENTS:
+            (entry,) = our_entries(twice, event)
+            assert entry["command"].startswith("AGENT_BEACON_CTL=/r/lite.swift ")

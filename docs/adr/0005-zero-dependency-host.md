@@ -67,10 +67,11 @@ echo '{"beacon_id": "<short-id>", "host_color": "blue"}' > ~/.config/agent-beaco
 cli/beaconctl_lite.swift status             # 動作確認(初回はBluetooth権限の許可)
 ```
 
-Hook連携は `settings.example.json` のコマンドに環境変数を1つ足すだけ:
+Hook連携はインストーラに `--ctl` を渡すだけ(このブランチのみのオプション。
+各Hookコマンドの先頭に `AGENT_BEACON_CTL=<絶対パス>` を付けて登録する):
 
-```
-AGENT_BEACON_CTL=/PATH/TO/agent-beacon/cli/beaconctl_lite.swift python3 /PATH/TO/.../attention_hook.py
+```sh
+python3 integrations/claude-code/install.py --ctl cli/beaconctl_lite.swift
 ```
 
 ## 既知の制約(許容する)

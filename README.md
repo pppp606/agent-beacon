@@ -168,11 +168,11 @@ JITコンパイル、以後はキャッシュされ即起動。Xcode Command Lin
 ```sh
 mkdir -p ~/.config/agent-beacon
 echo '{"beacon_id": "5e6f7a8b", "host_color": "blue"}' > ~/.config/agent-beacon/config.json
-cli/beaconctl_lite.swift status
+cli/beaconctl_lite.swift status                                     # 動作確認
+python3 integrations/claude-code/install.py --ctl cli/beaconctl_lite.swift  # Hook導入
 ```
 
-Hook連携は、settings.jsonのコマンドの先頭に
-`AGENT_BEACON_CTL=/PATH/TO/agent-beacon/cli/beaconctl_lite.swift ` を足すだけ。
+`--ctl` はHookのBLE書き込みをlite版に差し替える(`AGENT_BEACON_CTL`環境変数)。
 機能は `on`/`off`/`status` のみ(scan/useは省略。IDは他のMacで調べて手で設定する)。
 
 ## Development and testing
