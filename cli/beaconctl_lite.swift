@@ -1,10 +1,13 @@
+#!/usr/bin/env swift
 // beaconctl-lite — zero-dependency Agent Beacon client (ADR 0005).
 //
 // For hosts that cannot install any library (no bleak, no uv): everything
 // here is macOS-standard — CoreBluetooth + the Swift toolchain from Xcode
 // Command Line Tools.
 //
-// Build:  make lite   (= swiftc -O cli/beaconctl_lite.swift -o cli/beaconctl-lite)
+// Run:    cli/beaconctl_lite.swift on|off|status — self-executing, no build.
+//         Swift's script mode JIT-compiles on first run (~2s), then serves
+//         repeat runs from its cache (~0.1s).
 // Scope:  on / off / status only. No scan/use: the target beacon and this
 //         host's color come from the same config file the Python CLI writes
 //         (~/.config/agent-beacon/config.json); write it by hand here.
@@ -90,6 +93,7 @@ final class BeaconClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelega
     let op: Op
     var central: CBCentralManager!
     var peripheral: CBPeripheral?
+    var completed = false
 
     init(targetId: String, op: Op) {
         self.targetId = targetId
@@ -99,8 +103,15 @@ final class BeaconClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelega
 
     func run(timeout: Double) {
         central = CBCentralManager(delegate: self, queue: nil)
+        // Scan window: give up if the beacon never shows. Once it is found
+        // the deadline no longer applies to the (already progressing)
+        // connect/read/write, but a hung BLE op must not leave the hook's
+        // syncer waiting, so a hard deadline backstops the whole run.
         DispatchQueue.main.asyncAfter(deadline: .now() + timeout) {
-            fail("Beacon \(self.targetId) not found.")
+            if self.peripheral == nil { fail("Beacon \(self.targetId) not found.") }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + timeout + 20) {
+            if !self.completed { fail("Beacon \(self.targetId): operation timed out.") }
         }
     }
 
@@ -172,18 +183,18 @@ final class BeaconClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelega
             print(String(format: "0x%02x ", current) + describeState(current))
             finish()
         case .on(let bits, let blink):
-            writeIfChanged(rmwSet(current, bits, blink: blink), current, characteristic)
+            // Always write, even when the byte is unchanged: the write itself
+            // refreshes the beacon's display-timeout clocks (docs/protocol.md),
+            // so a tap-dismissed or timed-out display re-lights on every raise.
+            write(rmwSet(current, bits, blink: blink), characteristic)
         case .off(let bits):
-            writeIfChanged(rmwClear(current, bits), current, characteristic)
+            let new = rmwClear(current, bits)
+            new == current ? finish() : write(new, characteristic)
         }
     }
 
-    private func writeIfChanged(_ new: UInt8, _ current: UInt8, _ chr: CBCharacteristic) {
-        if new == current {
-            finish()
-            return
-        }
-        peripheral!.writeValue(Data([new]), for: chr, type: .withResponse)
+    private func write(_ value: UInt8, _ chr: CBCharacteristic) {
+        peripheral!.writeValue(Data([value]), for: chr, type: .withResponse)
     }
 
     func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic,
@@ -196,6 +207,7 @@ final class BeaconClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelega
 
     private func finish() {
         // Short-lived connection model (ADR 0001): disconnect, then exit.
+        completed = true
         if let p = peripheral {
             central.cancelPeripheralConnection(p)
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { exit(0) }
@@ -206,7 +218,12 @@ final class BeaconClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelega
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral,
                         error: Error?) {
-        exit(0)
+        // A disconnect is success only after the op finished; dropping the
+        // link mid-flight must not report success (the hook would record the
+        // state as applied and stop retrying).
+        if completed { exit(0) }
+        fail("Disconnected before the operation completed: "
+             + (error?.localizedDescription ?? "unknown reason"))
     }
 }
 

@@ -162,16 +162,17 @@ each Mac is configured to write to.
 外部ライブラリを一切インストールできないMac向けに、macOS標準の
 CoreBluetooth + Swiftだけで動くゼロ依存クライアントがある
 ([ADR 0005](docs/adr/0005-zero-dependency-host.md))。
+ビルド不要のSwiftスクリプトで、そのまま実行する(初回のみ~2秒で
+JITコンパイル、以後はキャッシュされ即起動。Xcode Command Line Toolsのみ必要)。
 
 ```sh
-make lite    # swiftc で1回ビルド(Xcode Command Line Toolsのみ必要)
 mkdir -p ~/.config/agent-beacon
 echo '{"beacon_id": "5e6f7a8b", "host_color": "blue"}' > ~/.config/agent-beacon/config.json
-cli/beaconctl-lite status
+cli/beaconctl_lite.swift status
 ```
 
 Hook連携は、settings.jsonのコマンドの先頭に
-`AGENT_BEACON_CTL=/PATH/TO/agent-beacon/cli/beaconctl-lite ` を足すだけ。
+`AGENT_BEACON_CTL=/PATH/TO/agent-beacon/cli/beaconctl_lite.swift ` を足すだけ。
 機能は `on`/`off`/`status` のみ(scan/useは省略。IDは他のMacで調べて手で設定する)。
 
 ## Development and testing

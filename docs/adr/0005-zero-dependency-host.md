@@ -25,9 +25,14 @@ Swiftツールチェーン(Xcode Command Line Tools)。bleakが必要なのは
 
 ### Swift + CoreBluetooth の単一ファイルクライアントを追加する
 
-`cli/beaconctl_lite.swift`。配布はソース(このリポジトリ)で、各ホストが
-`swiftc` で1回ビルドする(`make lite`)。バイナリ配布はしない
-(Gatekeeperの隔離・署名問題を避け、監査可能性を保つため)。
+`cli/beaconctl_lite.swift`。shebang(`#!/usr/bin/env swift`)付きの
+**実行可能なSwiftスクリプト**で、ビルドせずそのまま実行する。
+Swiftのスクリプトモードは初回実行時にJITコンパイルされ(~2秒)、
+以後はキャッシュから~0.1秒で起動する(実測)。Hook側のBLE書き込みは
+デタッチされた別プロセスなので、初回の2秒もClaude Codeをブロックしない。
+
+バイナリを作らない・配らないことで、Gatekeeperの隔離・署名問題を避け、
+「実行されるものがリポジトリのソースそのもの」という監査可能性を保つ。
 
 ### スコープは on / off / status のみ
 
@@ -57,21 +62,22 @@ mainにrebaseしてテストを回す(ベクタ比較が乖離を検出する)�
 
 ```sh
 git clone <repo> && cd agent-beacon && git switch swift-lite
-make lite                                   # swiftc で1回ビルド
 mkdir -p ~/.config/agent-beacon
 echo '{"beacon_id": "<short-id>", "host_color": "blue"}' > ~/.config/agent-beacon/config.json
-cli/beaconctl-lite status                   # 動作確認(初回はBluetooth権限の許可)
+cli/beaconctl_lite.swift status             # 動作確認(初回はBluetooth権限の許可)
 ```
 
 Hook連携は `settings.example.json` のコマンドに環境変数を1つ足すだけ:
 
 ```
-AGENT_BEACON_CTL=/PATH/TO/agent-beacon/cli/beaconctl-lite python3 /PATH/TO/.../attention_hook.py
+AGENT_BEACON_CTL=/PATH/TO/agent-beacon/cli/beaconctl_lite.swift python3 /PATH/TO/.../attention_hook.py
 ```
 
 ## 既知の制約(許容する)
 
-- Xcode Command Line Tools(swiftc)が前提。開発機以外では使えない
+- Xcode Command Line Tools(swift)が前提。開発機以外では使えない
+- スクリプトのキャッシュはファイル内容単位なので、ファイル更新後の初回実行は
+  再び~2秒かかる(運用上は無視できる)
 - `scan`/`use` が無いので、Short IDは他のMacで調べて手で設定する
 - 初回実行時にターミナルへのBluetooth権限プロンプトが出る(bleak版と同じ)
 

@@ -22,6 +22,8 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture(scope="session")
 def lite(tmp_path_factory):
+    # The script ships uncompiled (shebang + `swift` script mode), but the
+    # exhaustive tests below spawn it hundreds of times — compile once here.
     exe = tmp_path_factory.mktemp("lite") / "beaconctl-lite"
     subprocess.run(
         [SWIFTC, "-O", str(ROOT / "cli" / "beaconctl_lite.swift"), "-o", str(exe)],
